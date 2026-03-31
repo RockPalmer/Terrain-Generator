@@ -5,12 +5,29 @@ from terrain import *
 
 # Example: 2D array with values 0–2 for 3 colors
 main_screen = Terrain(5,1024)
-main_screen = main_screen.continents(12)
+main_screen = main_screen.continents(
+	count = 12,
+	iterations = 4
+)
+main_screen = main_screen.lattitudes(
+	maximum = 11,
+	minimum = 1,
+	color = lambda x,mx,mn : (
+		round((255 * (x - mn))/(mx - mn)),
+		round((255 * (x - mn))/(mx - mn)),
+		round((255 * (x - mn))/(mx - mn)),
+	),
+	poles = (
+		(True,True),
+		(True,True)
+	),
+	smoothing_factor = 4
+)
 
 window_size = 800
 border_width = 10
 surface = pygame.transform.scale(
-	pygame.surfarray.make_surface(main_screen['continents'].as_array()),
+	pygame.surfarray.make_surface(main_screen['continent'].as_array()),
 	(window_size,window_size)
 )
 
