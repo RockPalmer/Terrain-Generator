@@ -4,30 +4,32 @@ from typing import Iterable,Any
 from terrain import *
 
 # Example: 2D array with values 0–2 for 3 colors
-main_screen = Terrain(5,1024)
-main_screen = main_screen.continents(
+main_screen = Terrain(5,256)
+main_screen['continents'] = main_screen.continents(
 	count = 12,
 	iterations = 4
 )
-main_screen = main_screen.lattitudes(
-	maximum = 11,
-	minimum = 1,
-	color = lambda x,mx,mn : (
-		round((255 * (x - mn))/(mx - mn)),
-		round((255 * (x - mn))/(mx - mn)),
-		round((255 * (x - mn))/(mx - mn)),
-	),
-	poles = (
-		(True,True),
-		(True,True)
-	),
-	smoothing_factor = 4
+new_nums = main_screen.generate([(int,0,255**3 - 1)],12)
+main_screen['continents'] = main_screen['continents'].map(
+	('value',),
+	lambda v : Color(
+		new_nums[v] % 255,
+		new_nums[v] // 255 % 255,
+		new_nums[v] // 255**2 % 255
+	)
 )
+print('continents')
+poles = [
+	(0,0),
+	(0,255),
+	(255,0),
+	(255,255)
+]
 
 window_size = 800
 border_width = 10
 surface = pygame.transform.scale(
-	pygame.surfarray.make_surface(main_screen['continent'].as_array()),
+	pygame.surfarray.make_surface(main_screen['continents'].as_array()),
 	(window_size,window_size)
 )
 
