@@ -108,7 +108,7 @@ def is_fault_line(x,y,v):
 		if x >= 0 and y >= 0 and x < v.size and y < v.size:
 			values.add(v[x,y])
 	return len(values) > 1
-def get_corner(x,y,v):
+def get_edge(x,y,v):
 	points = {
 		(x - 1,y - 1),
 		(x - 1,y),
@@ -120,18 +120,13 @@ def get_corner(x,y,v):
 		(x + 1,y),
 		(x + 1,y + 1),
 	}
-	pcount = 0
 	values = set()
 	for x,y in points:
 		if x >= 0 and y >= 0 and x < v.size and y < v.size:
-			pcount += 1
 			values.add(v[x,y])
-	if len(values) > 2 or (
-		len(values) > 1 and
-		pcount < len(points)
-	):
-		return values
-	return set()
+	if len(values) > 1:
+		return frozenset(values)
+	return frozenset([])
 
 terrain['fault lines'] = keyMap(
 	lambda x,y,v: is_fault_line(x,y,v),
@@ -141,35 +136,30 @@ terrain['fault lines (colored)'] = scrMap(
 	lambda v: (255,255,255) if v else (0,0,0),
 	terrain['fault lines']
 )
-terrain['tectonic plate edges'] = scrMap(
-	lambda x,y: y if x else None,
-	terrain['fault lines'],
+terrain['tectonic plate edges'] = keyMap(
+	lambda x,y,v : get_edge(x,y,v),
 	terrain['tectonic plates'],
 )
 terrain['tectonic plate edges (colored)'] = scrMap(
-	lambda v : terrain['pixel map'][v] if v is not None else (0,0,0),
+	lambda v : terrain['pixel map'][v] if len(v) > 0 else (0,0,0),
 	terrain['tectonic plate edges'],
 )
 terrain['tectonic plate directions'] = scrMap(
 	lambda v : int((v[0] * GRID_SIZE + v[1]) * 360/GRID_SIZE**2),
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate corners'] = keyMap(
-	lambda x,y,v : get_corner(x,y,v),
-	terrain['tectonic plates']
-)
-terrain['tectonic plate corners (colored)'] = keyMap(
-	lambda x,y,u,v : u[x,y] if len(v[x,y]) > 0 else (0,0,0),
-	terrain['tectonic plates (colored)'],
-	terrain['tectonic plate corners'],
-)
-terrain['tectonic plate corners unique'] = 
 
-corners = set()
-for x in range(GRID_SIZE):
-	for y in range(GRID_SIZE):
-		if terrain['tectonic plate corners'][x,y] is not None:
-			corners
+continents = sorted(list(terrain['tectonic plates'].aggregate(set)))
+edges = {}
+for i,c1 in enumerate(continents):
+	for c2 in continents[i + 1:]:
+		for x in range(GRID_SIZE):
+			for y in range(GRID_SIZE):
+				if len(terrain['tectonic plate edges'][x,y]) == 0: continue
+				if c1 in terrain['tectonic plate edges'][x,y] and c2 in terrain['tectonic plate edges'][x,y]:
+					if (c1,c2) not in edges:
+						edges[c1,c2] = set()
+					edges[c1,c2].add((x,y))
 
 window = pygame.display.set_mode((2*LENGTH,LENGTH))
 pygame.display.set_caption("64x64 Random Colored Squares")
@@ -183,7 +173,7 @@ for y in range(GRID_SIZE):
 			CELL_SIZE,
 			CELL_SIZE,
 		)
-		pygame.draw.rect(window,terrain['tectonic plate corners (colored)'][x,y],rect)
+		pygame.draw.rect(window,terrain['tectonic plate identified corners (colored)'][x,y],rect)
 for y in range(GRID_SIZE):
 	for x in range(GRID_SIZE):
 		rect = pygame.Rect(
