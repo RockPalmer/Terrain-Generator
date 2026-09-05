@@ -5,25 +5,79 @@ from Screen import (
 	Screen,
 )
 from bidict import bidict
+from math import (
+	cos,
+	sin,
+	radians,
+)
+
+SCREEN_LAYOUT = {}
+FINAL_SCREEN_LAYOUT = []
+
+def getMaxX() -> int:
+	global SCREEN_LAYOUT
+
+	return max(x for x,_ in SCREEN_LAYOUT.keys())
+def getMaxY() -> int:
+	global SCREEN_LAYOUT
+
+	return max(y for _,y in SCREEN_LAYOUT.keys())
+def mapLayout(trn: dict[str,Screen]) -> None:
+	global SCREEN_LAYOUT,FINAL_SCREEN_LAYOUT
+
+	MAX_X = (getMaxX() + 1) * GRID_SIZE
+	MAX_Y = (getMaxY() + 1) * GRID_SIZE
+
+	nmap = [[None for i in range(MAX_Y)] for j in range(MAX_X)]
+
+	for (x,y),k in SCREEN_LAYOUT.items():
+		for i in range(GRID_SIZE):
+			for j in range(GRID_SIZE):
+				nmap[x * GRID_SIZE + i][y * GRID_SIZE + j] = trn[k][i,j]
+	FINAL_SCREEN_LAYOUT = nmap
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
-Angle = int
+
+def rotate(p1: Point,p2: Point,theta: float) -> tuple[int,int]:
+	return (
+		int((p1[0] - p2[0]) * cos(theta) - (p1[1] - p2[1]) * sin(theta) + p2[0]),
+		int((p1[0] - p2[0]) * sin(theta) + (p1[1] - p2[1]) * cos(theta) + p2[1]),
+	)
+def get_angled_distance(p1: Point,p2: Point,theta: int) -> int:
+	p3 = rotate(p1,p2,-radians(theta))
+	return p3[0] - p2[0]
 
 # Grid settings
 GRID_SIZE: int = 64
 CELL_SIZE: int = 10  # Size of each square in pixels
-
-def Color_to_int(value: Color) -> int:
-	return value[0] << 16 | value[1] << 8 | value[2]
-def Point_to_int(value: Point) -> int:
-	return value[0] * GRID_SIZE + value[1]
 
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
 NUM_CONTINENTS: int = 7
 
 pygame.init()
+
+def drawMap() -> None:
+	global pygame,FINAL_SCREEN_LAYOUT
+
+	window = pygame.display.set_mode((
+		(getMaxX() + 1)*LENGTH,
+		(getMaxY() + 1)*LENGTH,
+	))
+	pygame.display.set_caption("Window")
+
+	for x in range(len(FINAL_SCREEN_LAYOUT)):
+		for y in range(len(FINAL_SCREEN_LAYOUT[x])):
+			rect = pygame.Rect(
+				x * CELL_SIZE,
+				y * CELL_SIZE,
+				CELL_SIZE,
+				CELL_SIZE,
+			)
+			pygame.draw.rect(window,FINAL_SCREEN_LAYOUT[x][y],rect)
+	pygame.display.flip()
+
 terrain: dict[str,Screen] = {}
 terrain['lattitude']: Screen = Screen(GRID_SIZE)
 terrain['tectonic plates']: Screen = Screen(GRID_SIZE)
@@ -90,101 +144,38 @@ terrain['lattitude (colored)'] = scrMap(
 	terrain['lattitude'],
 )
 terrain['lattitude (colored)'] = scrMap(lambda v: (v,v,v), terrain['lattitude (colored)'])
-
-def is_fault_line(x,y,v):
-	points = {
-		(x - 1,y - 1),
-		(x - 1,y),
-		(x - 1,y + 1),
-		(x,y - 1),
-		(x,y),
-		(x,y + 1),
-		(x + 1,y - 1),
-		(x + 1,y),
-		(x + 1,y + 1),
-	}
-	values = set()
-	for x,y in points:
-		if x >= 0 and y >= 0 and x < v.size and y < v.size:
-			values.add(v[x,y])
-	return len(values) > 1
-def get_edge(x,y,v):
-	points = {
-		(x - 1,y - 1),
-		(x - 1,y),
-		(x - 1,y + 1),
-		(x,y - 1),
-		(x,y),
-		(x,y + 1),
-		(x + 1,y - 1),
-		(x + 1,y),
-		(x + 1,y + 1),
-	}
-	values = set()
-	for x,y in points:
-		if x >= 0 and y >= 0 and x < v.size and y < v.size:
-			values.add(v[x,y])
-	if len(values) > 1:
-		return frozenset(values)
-	return frozenset([])
-
-terrain['fault lines'] = keyMap(
-	lambda x,y,v: is_fault_line(x,y,v),
-	terrain['tectonic plates'],
-)
-terrain['fault lines (colored)'] = scrMap(
-	lambda v: (255,255,255) if v else (0,0,0),
-	terrain['fault lines']
-)
-terrain['tectonic plate edges'] = keyMap(
-	lambda x,y,v : get_edge(x,y,v),
-	terrain['tectonic plates'],
-)
-terrain['tectonic plate edges (colored)'] = scrMap(
-	lambda v : terrain['pixel map'][v] if len(v) > 0 else (0,0,0),
-	terrain['tectonic plate edges'],
-)
+centers = terrain['tectonic plates'].aggregate(set)
+directions = {center : random.randint(0,359) for center in centers}
 terrain['tectonic plate directions'] = scrMap(
-	lambda v : int((v[0] * GRID_SIZE + v[1]) * 360/GRID_SIZE**2),
+	lambda v : directions[v],
 	terrain['tectonic plates'],
 )
+speed = {center : random.randint(0,10) for center in centers}
+terrain['tectonic plate speeds'] = scrMap(
+	lambda v : speeds[v],
+	terrain['tectonic plates'],
+)
+terrain['distance in direction'] = keyMap(
+	lambda x,y,u,v : get_angled_distance((x,y),u[x,y],v[x,y]),
+	terrain['tectonic plates'],
+	terrain['tectonic plate directions']
+)
+max_dist = max(terrain['distance in direction'].aggregate(set))
+min_dist = min(terrain['distance in direction'].aggregate(set))
+terrain['distance in direction (colored)'] = scrMap(
+	lambda v : (
+		int((v - min_dist) * 255/(max_dist - min_dist)),
+		int((v - min_dist) * 255/(max_dist - min_dist)),
+		int((v - min_dist) * 255/(max_dist - min_dist)),
+	),
+	terrain['distance in direction'],
+)
 
-continents = sorted(list(terrain['tectonic plates'].aggregate(set)))
-edges = {}
-for i,c1 in enumerate(continents):
-	for c2 in continents[i + 1:]:
-		for x in range(GRID_SIZE):
-			for y in range(GRID_SIZE):
-				if len(terrain['tectonic plate edges'][x,y]) == 0: continue
-				if c1 in terrain['tectonic plate edges'][x,y] and c2 in terrain['tectonic plate edges'][x,y]:
-					if (c1,c2) not in edges:
-						edges[c1,c2] = set()
-					edges[c1,c2].add((x,y))
+SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
+SCREEN_LAYOUT[1,0] = 'distance in direction (colored)'
 
-window = pygame.display.set_mode((2*LENGTH,LENGTH))
-pygame.display.set_caption("64x64 Random Colored Squares")
-
-# Draw the grid
-for y in range(GRID_SIZE):
-	for x in range(GRID_SIZE):
-		rect = pygame.Rect(
-			x * CELL_SIZE,
-			y * CELL_SIZE,
-			CELL_SIZE,
-			CELL_SIZE,
-		)
-		pygame.draw.rect(window,terrain['tectonic plate identified corners (colored)'][x,y],rect)
-for y in range(GRID_SIZE):
-	for x in range(GRID_SIZE):
-		rect = pygame.Rect(
-			(x + GRID_SIZE) * CELL_SIZE,
-			y * CELL_SIZE,
-			CELL_SIZE,
-			CELL_SIZE,
-		)
-		pygame.draw.rect(window,terrain['tectonic plates (colored)'][x,y],rect)
-
-pygame.display.flip()
+mapLayout(terrain)
+drawMap()
 
 # Keep the window open
 running = True

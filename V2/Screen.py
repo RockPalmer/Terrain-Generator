@@ -104,5 +104,5 @@ class Screen:
 							self[x,y] = value
 				else: raise KeyError
 			case _: raise KeyError
-	def aggregate(self,fun:Callable) -> Any:
-		return fun([item for sublist in matrix for item in self.values])
+	def aggregate(self,fun: Callable) -> Any:
+		return fun([item for sublist in self.values for item in sublist])
