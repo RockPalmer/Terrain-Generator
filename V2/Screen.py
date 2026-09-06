@@ -31,7 +31,14 @@ class Screen:
 				values.add(self.values[i][j])
 		return len(values) == 1
 	def __len__(self) -> int:
-		return self.values
+		return len(self.values)**2
+	def __iter__(self) -> iter:
+		for row in self.values:
+			yield from row
+	def enumerate(self) -> iter:
+		for i in range(self.size):
+			for j in range(self.size):
+				yield ((i,j),self[i,j])
 	def __getitem__(self,index:tuple):
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")
@@ -104,5 +111,3 @@ class Screen:
 							self[x,y] = value
 				else: raise KeyError
 			case _: raise KeyError
-	def aggregate(self,fun: Callable) -> Any:
-		return fun([item for sublist in self.values for item in sublist])
