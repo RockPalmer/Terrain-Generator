@@ -1,4 +1,6 @@
 import pygame,random
+from noise import pnoise2
+from numpy import zeros
 from Screen import (
 	scrMap,
 	keyMap,
@@ -18,6 +20,17 @@ Color = tuple[int,int,int]
 Point = tuple[int,int]
 Vector = tuple[float,float]
 
+def generate_noise(width: int,height: int,scale: int = 100) -> list[list[int]]:
+	arr = zeros((height, width))
+	for i in range(height):
+		for j in range(width):
+			arr[i,j] = pnoise2(
+				i / scale,
+				j / scale,
+				octaves = 1,
+				base = 0
+			)
+	return arr.tolist()
 def getMaxX(layout: dict[Point,str]) -> int:
 	return max(x for x,_ in layout.keys())
 def getMaxY(layout: dict[Point,str]) -> int:
@@ -95,8 +108,8 @@ def getPairs(values: frozenset) -> set[frozenset]:
 	return results
 
 # Grid settings
-GRID_SIZE: int = 64
-CELL_SIZE: int = 5  # Size of each square in pixels
+GRID_SIZE: int = 256
+CELL_SIZE: int = 1  # Size of each square in pixels
 MAX_ANGLE = 359
 MAX_COLOR = 255
 MAX_THICKNESS = 255
@@ -143,8 +156,8 @@ while len(centers) < NUM_CONTINENTS:
 move_directions: set[int] = {center : random.randint(0,MAX_ANGLE) for center in centers}
 lean_directions: set[int] = {center : random.randint(0,MAX_ANGLE) for center in centers}
 lean_strengths: set[int] = {center : random.randint(0,MAX_LEAN_STRENGTH) for center in centers}
-thickness: set[int] = {center : random.randint(0,MAX_THICKNESS) for center in centers}
 
+pnoise = {center : generate_noise(GRID_SIZE,GRID_SIZE,GRID_SIZE//(NUM_CONTINENTS >> 1)) for center in centers}
 terrain['tectonic plates'] = Screen(GRID_SIZE)
 for center in centers:
 	terrain['tectonic plates'][center] = center
@@ -175,33 +188,37 @@ for i in range(5):
 	)
 centers = set(centers)
 terrain['lattitude'] = keyMap(lambda x,y,v: y, Screen(GRID_SIZE))
-terrain['tectonic plate thickness'] = scrMap(
-	lambda v : thickness[v],
+terrain['tectonic plate thickness'] = keyMap(
+	lambda x,y,v : pnoise[v[x,y]][x][y],
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate move directions'] = scrMap(
+terrain['tectonic plate lean strength'] = scrMap(
+	lambda v : lean_strengths[v],
+	terrain['tectonic plates'],
+)
+terrain['tectonic plate move direction'] = scrMap(
 	lambda v : move_directions[v],
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate lean directions'] = scrMap(
+terrain['tectonic plate lean direction'] = scrMap(
 	lambda v : lean_directions[v],
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate move directions (colored)'] = keyMap(
+terrain['tectonic plate move direction (colored)'] = keyMap(
 	lambda x,y,u,v : get_angled_distance((x,y),u[x,y],v[x,y]),
 	terrain['tectonic plates'],
-	terrain['tectonic plate move directions'],
+	terrain['tectonic plate move direction'],
 )
-terrain['tectonic plate lean directions (colored)'] = keyMap(
+terrain['tectonic plate lean direction (colored)'] = keyMap(
 	lambda x,y,u,v : get_angled_distance((x,y),u[x,y],v[x,y]),
 	terrain['tectonic plates'],
-	terrain['tectonic plate lean directions'],
+	terrain['tectonic plate lean direction'],
 )
 move_dist_ranges: dict[Point,tuple[int,int]] = {}
 lean_dist_ranges: dict[Point,tuple[int,int]] = {}
 for center in centers:
-	move_dists = {dist for (x,y),dist in terrain['tectonic plate move directions (colored)'].enumerate() if terrain['tectonic plates'][x,y] == center}
-	lean_dists = {dist for (x,y),dist in terrain['tectonic plate lean directions (colored)'].enumerate() if terrain['tectonic plates'][x,y] == center}
+	move_dists = {dist for (x,y),dist in terrain['tectonic plate move direction (colored)'].enumerate() if terrain['tectonic plates'][x,y] == center}
+	lean_dists = {dist for (x,y),dist in terrain['tectonic plate lean direction (colored)'].enumerate() if terrain['tectonic plates'][x,y] == center}
 	move_dist_ranges[center] = (max(move_dists),min(move_dists))
 	lean_dist_ranges[center] = (max(lean_dists),min(lean_dists))
 terrain['neighbors'] = keyMap(
@@ -223,6 +240,7 @@ for neighbor_set in terrain['neighbors']:
 		case 0: pass
 		case _: edges |= getPairs(neighbor_set)
 edges: set[tuple[Point,Point]] = {tuple(edge) for edge in edges}
+overlaps: dict[tuple[Point,Point],tuple[bool,bool]] = {}
 
 terrain['lattitude (colored)'] = scrMap(
 	lambda v: (
@@ -233,25 +251,29 @@ terrain['lattitude (colored)'] = scrMap(
 	terrain['lattitude'],
 )
 terrain['tectonic plate thickness (colored)'] = scrMap(
-	lambda v : (v,v,v),
+	lambda v : (
+		int((v + 1) * 127),
+		int((v + 1) * 127),
+		int((v + 1) * 127),
+	),
 	terrain['tectonic plate thickness'],
 )
-terrain['tectonic plate lean directions (colored)'] = scrMap(
+terrain['tectonic plate lean direction (colored)'] = scrMap(
 	lambda u,v : (
 		int((u - lean_dist_ranges[v][1]) * MAX_COLOR/(lean_dist_ranges[v][0] - lean_dist_ranges[v][1])),
 		int((u - lean_dist_ranges[v][1]) * MAX_COLOR/(lean_dist_ranges[v][0] - lean_dist_ranges[v][1])),
 		int((u - lean_dist_ranges[v][1]) * MAX_COLOR/(lean_dist_ranges[v][0] - lean_dist_ranges[v][1])),
 	),
-	terrain['tectonic plate lean directions (colored)'],
+	terrain['tectonic plate lean direction (colored)'],
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate move directions (colored)'] = scrMap(
+terrain['tectonic plate move direction (colored)'] = scrMap(
 	lambda u,v : (
 		int((u - move_dist_ranges[v][1]) * MAX_COLOR/(move_dist_ranges[v][0] - move_dist_ranges[v][1])),
 		int((u - move_dist_ranges[v][1]) * MAX_COLOR/(move_dist_ranges[v][0] - move_dist_ranges[v][1])),
 		int((u - move_dist_ranges[v][1]) * MAX_COLOR/(move_dist_ranges[v][0] - move_dist_ranges[v][1])),
 	),
-	terrain['tectonic plate move directions (colored)'],
+	terrain['tectonic plate move direction (colored)'],
 	terrain['tectonic plates'],
 )
 terrain['tectonic plates (colored)'] = scrMap(
@@ -268,8 +290,8 @@ terrain['edges (colored)'] = scrMap(
 )
 
 SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
-SCREEN_LAYOUT[1,0] = 'tectonic plate move directions (colored)'
-SCREEN_LAYOUT[1,1] = 'tectonic plate lean directions (colored)'
+SCREEN_LAYOUT[1,0] = 'tectonic plate move direction (colored)'
+SCREEN_LAYOUT[1,1] = 'tectonic plate lean direction (colored)'
 SCREEN_LAYOUT[0,1] = 'tectonic plate thickness (colored)'
 
 mapLayout(terrain)
