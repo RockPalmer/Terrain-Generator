@@ -21,7 +21,7 @@ def keyMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
 	return screen
 
 class Screen:
-	def __init__(self,size:int) -> None:
+	def __init__(self,size: int) -> None:
 		self.size = size
 		self.values = [[None for _ in range(size)] for _ in range(size)]
 	def checkSame(self,x1,x2,y1,y2):
@@ -39,7 +39,7 @@ class Screen:
 		for i in range(self.size):
 			for j in range(self.size):
 				yield ((i,j),self[i,j])
-	def __getitem__(self,index:tuple):
+	def __getitem__(self,index: tuple):
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")
 		match len(index):
@@ -77,7 +77,7 @@ class Screen:
 					return screen
 				raise KeyError
 			case _: raise KeyError
-	def __setitem__(self,index:tuple,value:Any) -> None:
+	def __setitem__(self,index: tuple,value: Any) -> None:
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")
 		match len(index):
@@ -111,3 +111,45 @@ class Screen:
 							self[x,y] = value
 				else: raise KeyError
 			case _: raise KeyError
+	def __add__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] + other[i,j]
+			return screen
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] + other
+			return screen
+		return NotImplemented
+	def __sub__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] - other[i,j]
+			return screen
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] - other
+			return screen
+		return NotImplemented
+	def __mul__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] * other[i,j]
+			return screen
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] * other
+			return screen
+		return NotImplemented

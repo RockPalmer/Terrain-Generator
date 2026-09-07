@@ -1,5 +1,6 @@
 import pygame,random
 from noise import pnoise2
+from perlin import perlin4
 from numpy import zeros
 from Screen import (
 	scrMap,
@@ -10,7 +11,9 @@ from bidict import bidict
 from math import (
 	cos,
 	sin,
+	tan,
 	radians,
+	pi,
 )
 from itertools import product
 
@@ -21,24 +24,43 @@ Color = tuple[int,int,int]
 Point = tuple[int,int]
 Vector = tuple[float,float]
 
-'''
-x == 0 -> W
-y == 0 -> N
-'''
+def perlinNoise(size,seed=0,scale=1,octaves=1):
+	"""
+	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
 
-def getAlternatePoints(point: Point) -> set[Point]:
-	x,y = point
-	return {
-		(x - GRID_SIZE,y - GRID_SIZE),
-		(x - GRID_SIZE,y),
-		(x - GRID_SIZE,y + GRID_SIZE),
-		(x,y - GRID_SIZE),
-		(x,y),
-		(x,y + GRID_SIZE),
-		(x + GRID_SIZE,y - GRID_SIZE),
-		(x + GRID_SIZE,y),
-		(x + GRID_SIZE,y + GRID_SIZE),
-	}
+	Returns:
+	    list[list[float]]: values approximately [-1, 1]
+	"""
+	rng = random.Random(seed)
+	seed_offset = rng.random() * 10000.0
+	noise_map = []
+	for y in range(size):
+		row = []
+		for x in range(size):
+			value = 0.0
+			amplitude = 1.0
+			frequency = 1.0
+			amplitude_sum = 0.0
+			for octave in range(octaves):
+				# Map grid coordinates onto a torus
+				angle_x = 2.0 * pi * x / size
+				angle_y = 2.0 * pi * y / size
+				nx = cos(angle_x) * scale * frequency
+				ny = sin(angle_x) * scale * frequency
+				nz = cos(angle_y) * scale * frequency
+				nw = sin(angle_y) * scale * frequency + seed_offset
+				sample = perlin4(nx,ny,nz,nw)
+				value += sample * amplitude
+				amplitude_sum += amplitude
+				amplitude *= 0.5
+				frequency *= 2.0
+			row.append(value / amplitude_sum)
+		noise_map.append(row)
+	result = {}
+	for i in range(size):
+		for j in range(size):
+			result[i,j] = noise_map[i][j]
+	return result
 def generateNoise(width: int,height: int,scale: int,base: int) -> dict[Point,float]:
 	arr = zeros((height, width))
 	for i in range(height):
@@ -78,9 +100,10 @@ def mapLayout(trn: dict[str,Screen]) -> None:
 				))
 				FINAL_SCREEN_LAYOUT[x * GRID_SIZE + i][y * GRID_SIZE + j] = trn[k][i,j]
 def rotate(p1: Point,p2: Point,theta: float) -> Point:
+	dx,dy = getVector(p2,p1)
 	return (
-		int((p1[0] - p2[0]) * cos(theta) - (p1[1] - p2[1]) * sin(theta) + p2[0]),
-		int((p1[0] - p2[0]) * sin(theta) + (p1[1] - p2[1]) * cos(theta) + p2[1]),
+		int(dx * cos(theta) - dy * sin(theta) + p2[0]),
+		int(dx * sin(theta) + dy * cos(theta) + p2[1]),
 	)
 def getSides(center: Point,trn: Screen) -> set[str]:
 	sides = set()
@@ -101,38 +124,31 @@ def getSides(center: Point,trn: Screen) -> set[str]:
 			sides.add('E')
 			break
 	return sides
-def getCorrectPoint(point: Point,guide: Point,trn: Screen) -> Point:
-	sides = getSides(guide,trn)
-	if len(sides) == 0: return point
-	points = list(getAlternatePoints(point))
-	dists = [getDistance(pt,guide) for pt in points]
-	minDist = min(dists)
-	minDistIndices = [i for i,dist in enumerate(dists) if dist == minDist]
-	pts = [points[i] for i in minDistIndices]
-	if len(pts) == 1: return pts[0]
-	if pt in pts: return pt
-	raise ValueError
-def getAngledDistance(p1: Point,center: Point,theta: int,trn: Screen) -> int: # int[-63,63]
-	p3 = rotate(
-		getCorrectPoint(p1,center,trn),
-		center,
-		-radians(theta)
-	)
-	return p3[0] - center[0]
+def getAngledDistance(p1: Point,p2: Point,theta: int) -> int: # int[-63,63]
+	p3 = rotate(p1,p2,-radians(theta))
+	return p3[0] - p2[0]
 def getClosestPoint(point: Point,centers: list[Point]) -> Point:
-	points = getAlternatePoints(point)
-	point_pairs = list(product(points,set(centers)))
-	distances = [getDistance(p,c) for p,c in point_pairs]
-	min_dist = min(distances)
-	index = distances.index(min_dist)
-	return point_pairs[index][1]
+	cents = list(centers)
+	distances = [getDistance(point,center) for center in cents]
+	minDist = min(distances)
+	minDistIndex = distances.index(minDist)
+	return cents[minDistIndex]
 def get_centroid(points: set[Point]) -> Point:
 	return (
 		sum(p[0] for p in points)/len(points),
 		sum(p[1] for p in points)/len(points),
 	)
 def getDistance(p1: Point, p2: Point) -> float:
-	return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
+	dx = abs(p1[0] - p2[0])
+	dy = abs(p1[1] - p2[1])
+	if dx > GRID_SIZE / 2: dx = GRID_SIZE - dx
+	if dy > GRID_SIZE / 2: dy = GRID_SIZE - dy
+	return (dx**2 + dy**2)**0.5
+def getVector(p1: Point,p2: Point) -> tuple[int,int]:
+	return (
+		int(((p2[0] - p1[0] + GRID_SIZE / 2) % GRID_SIZE) - GRID_SIZE / 2),
+		int(((p2[1] - p1[1] + GRID_SIZE / 2) % GRID_SIZE) - GRID_SIZE / 2),
+	)
 def get_neighbors(x: int,y: int,v: Screen) -> frozenset[Point]:
 	points = {
 		(x - 1,y - 1),
@@ -150,14 +166,6 @@ def get_neighbors(x: int,y: int,v: Screen) -> frozenset[Point]:
 		if i >= 0 and j >= 0 and i < v.size and j < v.size:
 			values.add(v[i,j])
 	return frozenset(values)
-def getVectorBetween(p1: Point,p2: Point) -> Vector:
-	return (
-		p2[0] - p1[0],
-		p2[1] - p1[1],
-	)
-def getPerpVector(v: Vector) -> Vector:
-	x,y = v
-	return (-y,x)
 def getPairs(values: frozenset) -> set[frozenset]:
 	return {frozenset(v) for v in product(set(values),set(values))} - {frozenset([v,v]) for v in values}
 def getConjunctionHeight(centers: frozenset[Point],alts: dict[frozenset[Point],dict[Point,int]],cont: Point) -> int:
@@ -211,19 +219,16 @@ while len(centers) < NUM_CONTINENTS:
 	if c not in centers:
 		centers.append(c)
 move_directions: dict[Point,int] = {center : random.randint(0,MAX_ANGLE) for center in centers} # Point => int[0,359]
-lean_directions: dict[Point,int] = {center : random.randint(0,MAX_ANGLE) for center in centers} # Point => int[0,359]
-lean_strengths: dict[Point,int] = {center : random.randint(0,MAX_THICKNESS) for center in centers} # Point => int[0,255]
+heights: dict[Point,int] = {center : random.randint(0,MAX_THICKNESS) for center in centers} # Point => int[0,255]
 
-pnoise = {
-	center : generateNoise(
-		3*GRID_SIZE,
-		3*GRID_SIZE,
-		GRID_SIZE//(
-			NUM_CONTINENTS >> 1
-		),
-		i
-	) for i,center in enumerate(centers)
-} # Point => float[-1,1]
+pnoise = {}
+for i,center in enumerate(centers):
+	pnoise[center] = perlinNoise(
+		GRID_SIZE,
+		i,
+	)
+	print(i)
+print('pnoise')
 terrain['tectonic plates'] = Screen(GRID_SIZE)
 for center in centers:
 	terrain['tectonic plates'][center] = center
@@ -254,56 +259,20 @@ for i in range(5):
 	)
 centers = set(centers)
 terrain['lattitude'] = keyMap(lambda x,y,v: y, Screen(GRID_SIZE))
-terrain['tectonic plate thickness'] = keyMap(
-	lambda x,y,v : int(
-		(pnoise[v[x,y]][
-			*[v + GRID_SIZE for v in getCorrectPoint((x,y),v[x,y],v)]
-		] + 1) * MAX_THICKNESS/2
-	),
-	terrain['tectonic plates'],
-) # int[0,255]
-average_thickness: dict[Point,list[int]] = {} # Point => list[int[0,255]]
-for x in range(GRID_SIZE):
-	for y in range(GRID_SIZE):
-		if terrain['tectonic plates'][x,y] not in average_thickness:
-			average_thickness[terrain['tectonic plates'][x,y]] = []
-		average_thickness[terrain['tectonic plates'][x,y]].append(terrain['tectonic plate thickness'][x,y])
-average_thickness: dict[Point,float] = {center : sum(v)//len(v) for center,v in average_thickness.items()} # Point => int[0,255]
-lean_inversions: dict[Point,bool] = {center : random.randint(0,1) == 1 for center in centers} # Point => bool
-terrain['lean inverted'] = scrMap(
-	lambda v : lean_inversions[v],
-	terrain['tectonic plates'],
-)
-terrain['tectonic plate average thickness'] = scrMap(
-	lambda v : average_thickness[v],
-	terrain['tectonic plates'],
-) # int[0,255]
-terrain['tectonic plate lean height'] = scrMap(
-	lambda v : lean_strengths[v],
-	terrain['tectonic plates'],
-) # int[0,255]
 terrain['tectonic plate move direction'] = scrMap(
 	lambda v : move_directions[v],
 	terrain['tectonic plates'],
 ) # int[0,359]
 terrain['tectonic plate move amount'] = keyMap(
-	lambda x,y,u,v : (getAngledDistance((x,y),u[x,y],v[x,y],u) + GRID_SIZE) * MAX_THICKNESS/(2 * GRID_SIZE),
+	lambda x,y,u,v : (getAngledDistance((x,y),u[x,y],v[x,y]) + GRID_SIZE) * MAX_THICKNESS/(2 * GRID_SIZE),
 	terrain['tectonic plates'],
 	terrain['tectonic plate move direction'],
 ) # int[0,255]
-terrain['tectonic plate altitude bottom'] = scrMap(
-	lambda a,bc : a + b if c else a + (MAX_THICKNESS - b),
-	terrain['tectonic plate move amount'],
-	terrain['tectonic plate lean height'],
-	terrain['lean inverted'],
-) # int[0,255] * int[0,255]
-terrain['tectonic plate altitude top'] = scrMap(
-	lambda a,b : a + b,
-	terrain['tectonic plate altitude bottom'],
-	terrain['tectonic plate thickness'],
-) # 
+terrain['tectonic plate height'] = scrMap(
+	lambda v : heights[v],
+	terrain['tectonic plates'],
+) # int[0,359]
 move_dist_ranges: dict[Point,tuple[int,int]] = {}
-lean_dist_ranges: dict[Point,tuple[int,int]] = {}
 for center in centers:
 	move_dists = {dist for (x,y),dist in terrain['tectonic plate move amount'].enumerate() if terrain['tectonic plates'][x,y] == center}
 	move_dist_ranges[center] = (max(move_dists),min(move_dists))
@@ -330,53 +299,12 @@ terrain['edges'] = scrMap(
 	terrain['neighbors'],
 )
 edges: set[frozenset[Point]] = {edge for edge in terrain['edges']}
-edge_altitude_tops: dict[frozenset[Point],dict[Point,list[int]]] = {edge : {point : [] for point in edge} for edge in edges}
-edge_altitude_bottoms: dict[frozenset[Point],dict[Point,list[int]]] = {edge : {point : [] for point in edge} for edge in edges}
-for x in range(GRID_SIZE):
-	for y in range(GRID_SIZE):
-		for edge in edges:
-			if edge == terrain['edges'][x,y]:
-				edge_altitude_tops[edge][terrain['tectonic plates'][x,y]].append(terrain['tectonic plate altitude top'][x,y])
-				edge_altitude_bottoms[edge][terrain['tectonic plates'][x,y]].append(terrain['tectonic plate altitude bottom'][x,y])
-edge_altitude_tops: dict[frozenset[Point],dict[Point,int]] = {edge : {point: sum(vals)//len(vals) for point,vals in cents.items} for edge,cents in edge_altitude_tops.items()}
-edge_altitude_bottoms: dict[frozenset[Point],dict[Point,int]] = {edge : {point: sum(vals)//len(vals) for point,vals in cents.items} for edge,cents in edge_altitude_bottoms.items()}
-edge_boundary_types = {}
-for edge in edge_altitude_tops:
-	cents = tuple(edge_altitude_tops[edge].keys())
-	if len(cents) != 2: raise ValueError(len(cents))
-	if edge_altitude_tops[edge][cents[0]] < edge_altitude_bottoms[edge][cents[1]]:
-		edge_boundary_types[edge] = {
-			cents[0] : False,
-			cents[1] : True,
-		}
-	elif edge_altitude_tops[edge][cents[1]] < edge_altitude_bottoms[edge][cents[0]]:
-		edge_boundary_types[edge] = {
-			cents[1] : False,
-			cents[0] : True,
-		}
-	else:
-		edge_boundary_types[edge] = {
-			cents[1] : True,
-			cents[0] : True,
-		}
+edge_differences = {edge : 0 for edge in edges}
+for edge in edges:
+	c1,c2 = tuple(edge)
+	edge_differences[edge] = abs(terrain['tectonic plate height'][c1] - terrain['tectonic plate height'][c2])
+edge_boundary_types = {edge : {point : bool for point in edge} for edge in edges}
 
-terrain['edge altitude top'] = scrMap(
-	lambda is_conjunction,conts,center : edge_altitude_tops[edge][center] if is_edge else getConjunctionHeight(const,edge_altitude_tops,center) if is_conjunction else 0,
-	terrain['is conjunction'],
-	terrain['conjunctions'],
-	terrain['tectonic plates'],
-)
-terrain['edge altitude bottom'] = scrMap(
-	lambda is_conjunction,conts,center : getConjunctionHeight(const,edge_altitude_bottoms,center) if is_conjunction else 0,
-	terrain['is conjunction'],
-	terrain['conjunctions'],
-	terrain['tectonic plates'],
-)
-
-min_alt_bot = min(v for v in terrain['tectonic plate altitude bottom'])
-max_alt_bot = max(v for v in terrain['tectonic plate altitude bottom'])
-min_alt_top = min(v for v in terrain['tectonic plate altitude top'])
-max_alt_top = max(v for v in terrain['tectonic plate altitude top'])
 
 terrain['lattitude (colored)'] = scrMap(
 	lambda v: (
@@ -385,26 +313,6 @@ terrain['lattitude (colored)'] = scrMap(
 		int(abs(v - GRID_SIZE/2) * 2 * MAX_COLOR/GRID_SIZE),
 	),
 	terrain['lattitude'],
-)
-terrain['tectonic plate thickness (colored)'] = scrMap(
-	lambda v : (v,v,v),
-	terrain['tectonic plate thickness'],
-)
-terrain['tectonic plate average thickness (colored)'] = scrMap(
-	lambda v : (
-		int((v + 1) * 127),
-		int((v + 1) * 127),
-		int((v + 1) * 127),
-	),
-	terrain['tectonic plate average thickness'],
-)
-terrain['tectonic plate lean height (colored)'] = scrMap(
-	lambda v : (
-		int(v * MAX_COLOR/MAX_THICKNESS),
-		int(v * MAX_COLOR/MAX_THICKNESS),
-		int(v * MAX_COLOR/MAX_THICKNESS),
-	),
-	terrain['tectonic plate lean height'],
 )
 terrain['tectonic plate move direction (colored)'] = scrMap(
 	lambda u,v : (
@@ -415,21 +323,9 @@ terrain['tectonic plate move direction (colored)'] = scrMap(
 	terrain['tectonic plate move amount'],
 	terrain['tectonic plates'],
 )
-terrain['tectonic plate altitude bottom (colored)'] = scrMap(
-	lambda v : (
-		int((v - min_alt_bot) * MAX_COLOR/(max_alt_bot - min_alt_bot)),
-		int((v - min_alt_bot) * MAX_COLOR/(max_alt_bot - min_alt_bot)),
-		int((v - min_alt_bot) * MAX_COLOR/(max_alt_bot - min_alt_bot)),
-	),
-	terrain['tectonic plate altitude bottom'],
-)
-terrain['tectonic plate altitude top (colored)'] = scrMap(
-	lambda v : (
-		int((v - min_alt_top) * MAX_COLOR/(max_alt_top - min_alt_top)),
-		int((v - min_alt_top) * MAX_COLOR/(max_alt_top - min_alt_top)),
-		int((v - min_alt_top) * MAX_COLOR/(max_alt_top - min_alt_top)),
-	),
-	terrain['tectonic plate altitude top'],
+terrain['tectonic plate height (colored)'] = scrMap(
+	lambda v : (v,v,v),
+	terrain['tectonic plate height'],
 )
 terrain['tectonic plates (colored)'] = scrMap(
 	lambda v : terrain['noise'][*v],
@@ -443,13 +339,19 @@ terrain['conjunctions (colored)'] = scrMap(
 	),
 	terrain['conjunctions'],
 )
+terrain['edges (colored)'] = scrMap(
+	lambda u : (
+		sum(terrain['tectonic plates (colored)'][p][0] for p in u) % 256,
+		sum(terrain['tectonic plates (colored)'][p][1] for p in u) % 256,
+		sum(terrain['tectonic plates (colored)'][p][2] for p in u) % 256,
+	),
+	terrain['edges'],
+)
 
-SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
-SCREEN_LAYOUT[1,0] = 'tectonic plate move direction (colored)'
-SCREEN_LAYOUT[0,1] = 'tectonic plate thickness (colored)'
-SCREEN_LAYOUT[1,1] = 'tectonic plate lean height (colored)'
-SCREEN_LAYOUT[2,0] = 'tectonic plate altitude bottom (colored)'
-SCREEN_LAYOUT[2,1] = 'tectonic plate altitude top (colored)'
+SCREEN_LAYOUT[0,0] = 'tectonic plate move direction (colored)'
+SCREEN_LAYOUT[1,0] = 'edges (colored)'
+SCREEN_LAYOUT[0,1] = 'tectonic plate height (colored)'
+SCREEN_LAYOUT[1,1] = 'tectonic plates (colored)'
 
 mapLayout(terrain)
 drawMap()
