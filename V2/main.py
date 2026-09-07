@@ -160,6 +160,10 @@ def getPerpVector(v: Vector) -> Vector:
 	return (-y,x)
 def getPairs(values: frozenset) -> set[frozenset]:
 	return {frozenset(v) for v in product(set(values),set(values))} - {frozenset([v,v]) for v in values}
+def getConjunctionHeight(centers: frozenset[Point],alts: dict[frozenset[Point],dict[Point,int]],cont: Point) -> int:
+	pairs: set[frozenset[Point]] = getPairs(centers)
+	vals = [alts[pair][cont] for pair in pairs]
+	return sum(vals)//len(vals)
 
 # Grid settings
 GRID_SIZE: int = 256
@@ -325,25 +329,48 @@ terrain['edges'] = scrMap(
 	terrain['is edge'],
 	terrain['neighbors'],
 )
-edges: set[frozenset[Point]] = set()
-for neighbor_set in terrain['neighbors']:
-	match len(neighbor_set):
-		case 1: edges.add(neighbor_set)
-		case 0: pass
-		case _: edges |= getPairs(neighbor_set)
-edge_altitude_tops = {edge: {e : [] for e in edge} for edge in edges}
-edge_altitude_bottoms = {edge: {e : [] for e in edge} for edge in edges}
+edges: set[frozenset[Point]] = {edge for edge in terrain['edges']}
+edge_altitude_tops: dict[frozenset[Point],dict[Point,list[int]]] = {edge : {point : [] for point in edge} for edge in edges}
+edge_altitude_bottoms: dict[frozenset[Point],dict[Point,list[int]]] = {edge : {point : [] for point in edge} for edge in edges}
 for x in range(GRID_SIZE):
 	for y in range(GRID_SIZE):
 		for edge in edges:
-			if edge <= terrain['neighbors'][x,y]:
+			if edge == terrain['edges'][x,y]:
 				edge_altitude_tops[edge][terrain['tectonic plates'][x,y]].append(terrain['tectonic plate altitude top'][x,y])
 				edge_altitude_bottoms[edge][terrain['tectonic plates'][x,y]].append(terrain['tectonic plate altitude bottom'][x,y])
-edge_altitude_tops = {edge : int(sum(alts)/len(alts)) for edge,alts in edge_altitude_tops.items()}
-edge_altitude_bottoms = {edge : int(sum(alts)/len(alts)) for edge,alts in edge_altitude_bottoms.items()}
+edge_altitude_tops: dict[frozenset[Point],dict[Point,int]] = {edge : {point: sum(vals)//len(vals) for point,vals in cents.items} for edge,cents in edge_altitude_tops.items()}
+edge_altitude_bottoms: dict[frozenset[Point],dict[Point,int]] = {edge : {point: sum(vals)//len(vals) for point,vals in cents.items} for edge,cents in edge_altitude_bottoms.items()}
+edge_boundary_types = {}
+for edge in edge_altitude_tops:
+	cents = tuple(edge_altitude_tops[edge].keys())
+	if len(cents) != 2: raise ValueError(len(cents))
+	if edge_altitude_tops[edge][cents[0]] < edge_altitude_bottoms[edge][cents[1]]:
+		edge_boundary_types[edge] = {
+			cents[0] : False,
+			cents[1] : True,
+		}
+	elif edge_altitude_tops[edge][cents[1]] < edge_altitude_bottoms[edge][cents[0]]:
+		edge_boundary_types[edge] = {
+			cents[1] : False,
+			cents[0] : True,
+		}
+	else:
+		edge_boundary_types[edge] = {
+			cents[1] : True,
+			cents[0] : True,
+		}
+
 terrain['edge altitude top'] = scrMap(
-	lambda u : edge_altitude_tops[],
-	terrain['is edge'],
+	lambda is_conjunction,conts,center : edge_altitude_tops[edge][center] if is_edge else getConjunctionHeight(const,edge_altitude_tops,center) if is_conjunction else 0,
+	terrain['is conjunction'],
+	terrain['conjunctions'],
+	terrain['tectonic plates'],
+)
+terrain['edge altitude bottom'] = scrMap(
+	lambda is_conjunction,conts,center : getConjunctionHeight(const,edge_altitude_bottoms,center) if is_conjunction else 0,
+	terrain['is conjunction'],
+	terrain['conjunctions'],
+	terrain['tectonic plates'],
 )
 
 min_alt_bot = min(v for v in terrain['tectonic plate altitude bottom'])
