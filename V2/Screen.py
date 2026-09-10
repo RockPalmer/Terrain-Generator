@@ -153,3 +153,31 @@ class Screen:
 					screen[i,j] = self[i,j] * other
 			return screen
 		return NotImplemented
+	def __truediv__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] / other[i,j]
+			return screen
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] / other
+			return screen
+		return NotImplemented
+	def __floordiv__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] // other[i,j]
+			return screen
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = self[i,j] // other
+			return screen
+		return NotImplemented

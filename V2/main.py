@@ -22,9 +22,12 @@ FINAL_SCREEN_LAYOUT = []
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
-Vector = tuple[float,float]
+IntVector = tuple[int,int]
+FloatVector = tuple[float,float]
+Vector = IntVector | FloatVector
 
-def perlinNoise(size,seed=0,scale=1,octaves=1):
+# (int,int|float,int,int) -> (Point => float[-1,1])
+def perlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> dict[Point,float]:
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
 
@@ -60,22 +63,6 @@ def perlinNoise(size,seed=0,scale=1,octaves=1):
 	for i in range(size):
 		for j in range(size):
 			result[i,j] = noise_map[i][j]
-	return result
-def generateNoise(width: int,height: int,scale: int,base: int) -> dict[Point,float]:
-	arr = zeros((height, width))
-	for i in range(height):
-		for j in range(width):
-			arr[i,j] = pnoise2(
-				i / scale,
-				j / scale,
-				octaves = 1,
-				base = base,
-			)
-	values = arr.tolist()
-	result = {}
-	for i in range(len(values)):
-		for j in range(len(values[i])):
-			result[i,j] = values[i][j]
 	return result
 def getMaxX(layout: dict[Point,str]) -> int:
 	return max(x for x,_ in layout.keys())
@@ -172,10 +159,43 @@ def getConjunctionHeight(centers: frozenset[Point],alts: dict[frozenset[Point],d
 	pairs: set[frozenset[Point]] = getPairs(centers)
 	vals = [alts[pair][cont] for pair in pairs]
 	return sum(vals)//len(vals)
+def dot(v1: Vector,v2: Vector) -> int|float|Vector:
+	if isinstance(v1,tuple) and isinstance(v2,tuple): return v1[0] * v2[0] + v1[1] * v2[1]
+	if isinstance(v1,tuple) and not isinstance(v2,tuple): return dot(v2,v1)
+	return (v1 * v2[0],v1 * v2[1])
+def proj(a: Vector,b: Vector) -> Vector:
+	return dot(
+		dot(a,b)/dot(b,b),
+		b
+	)
+def angleToVector(angle: int) -> FloatVector:
+	return (
+		cos(radians(angle)),
+		sin(radians(angle)),
+	)
+def magnitude(v: Vector) -> int|float:
+	return (v[0]**2 + v[1]**2)**0.5
+def unitVector(v: Vector) -> Vector:
+	return (
+		v[0] / magnitude(v),
+		v[1] / magnitude(v),
+	)
+def smudge(point: Point,trn: Screen,res: int) -> Screen:
+	screen = Screen(GRID_SIZE)
+	x,y = point
+	points = set()
+	for i in range(-res,res + 1):
+		for j in range(-res,res + 1):
+			points.add((x + i,y + j))
+	values = []
+	for i,j in points:
+		if i >= 0 and j >= 0 and i < GRID_SIZE and j < GRID_SIZE:
+			values.append(trn[i,j])
+	return sum(values)/len(values)
 
 # Grid settings
 GRID_SIZE: int = 256
-CELL_SIZE: int = 1  # Size of each square in pixels
+CELL_SIZE: int = 3  # Size of each square in pixels
 MAX_ANGLE = 359
 MAX_COLOR = 255
 MAX_THICKNESS = 255
@@ -219,13 +239,13 @@ while len(centers) < NUM_CONTINENTS:
 	if c not in centers:
 		centers.append(c)
 move_directions: dict[Point,int] = {center : random.randint(0,MAX_ANGLE) for center in centers} # Point => int[0,359]
-heights: dict[Point,int] = {center : random.randint(0,MAX_THICKNESS) for center in centers} # Point => int[0,255]
+heights: dict[Point,int] = {center : random.randint(0,MAX_THICKNESS//8) for center in centers} # Point => int[0,255]
 
 pnoise = {}
 for i,center in enumerate(centers):
 	pnoise[center] = perlinNoise(
-		GRID_SIZE,
-		i,
+		size = GRID_SIZE,
+		seed = random.randint(0,255),
 	)
 	print(i)
 print('pnoise')
@@ -271,7 +291,12 @@ terrain['tectonic plate move amount'] = keyMap(
 terrain['tectonic plate height'] = scrMap(
 	lambda v : heights[v],
 	terrain['tectonic plates'],
-) # int[0,359]
+) # int[0,255]
+terrain['tectonic plate thickness'] = keyMap(
+	lambda x,y,v : int((pnoise[v[x,y]][x,y] + 1) * MAX_THICKNESS/2),
+	terrain['tectonic plates'],
+) # int[0,255]
+terrain['tectonic plate top'] = terrain['tectonic plate height'] + terrain['tectonic plate thickness'] # int[0,510]
 move_dist_ranges: dict[Point,tuple[int,int]] = {}
 for center in centers:
 	move_dists = {dist for (x,y),dist in terrain['tectonic plate move amount'].enumerate() if terrain['tectonic plates'][x,y] == center}
@@ -298,13 +323,104 @@ terrain['edges'] = scrMap(
 	terrain['is edge'],
 	terrain['neighbors'],
 )
-edges: set[frozenset[Point]] = {edge for edge in terrain['edges']}
-edge_differences = {edge : 0 for edge in edges}
+edges: set[frozenset[Point]] = {edge for edge in terrain['edges'] if len(edge) > 0}
+edge_boundary_is_overlapping: dict[tuple[Point,Point],dict[Point,bool]] = {edge : {point : False for point in edge} for edge in edges}
 for edge in edges:
 	c1,c2 = tuple(edge)
-	edge_differences[edge] = abs(terrain['tectonic plate height'][c1] - terrain['tectonic plate height'][c2])
-edge_boundary_types = {edge : {point : bool for point in edge} for edge in edges}
+	if terrain['tectonic plate top'][c1] < terrain['tectonic plate top'][c2]:
+		edge_boundary_is_overlapping[edge][c1] = False
+		edge_boundary_is_overlapping[edge][c2] = True
+	elif terrain['tectonic plate top'][c1] > terrain['tectonic plate top'][c2]:
+		edge_boundary_is_overlapping[edge][c1] = True
+		edge_boundary_is_overlapping[edge][c2] = False
+	else:
+		edge_boundary_is_overlapping[edge][c1] = True
+		edge_boundary_is_overlapping[edge][c2] = True
+edge_boundary_overlaps: dict[frozenset[Point],int] = {edge : 0 for edge in edges}
+for edge in edges:
+	c1,c2 = tuple(edge)
+	if terrain['tectonic plate top'][c1] < terrain['tectonic plate top'][c2]:
+		edge_boundary_overlaps[edge] = abs(terrain['tectonic plate top'][c2] - terrain['tectonic plate height'][c1]) # int[0,510]
+	elif terrain['tectonic plate top'][c1] > terrain['tectonic plate top'][c2]:
+		edge_boundary_overlaps[edge] = abs(terrain['tectonic plate top'][c1] - terrain['tectonic plate height'][c2]) # int[0,510]
+	else:
+		edge_boundary_overlaps[edge] = min(
+			terrain['tectonic plate thickness'][c1],
+			terrain['tectonic plate thickness'][c2],
+		) # int[0,255]
+edge_boundary_convergence: dict[frozenset[Point],float] = {edge : 0 for edge in edges}
+edge_boundary_strikeslip: dict[frozenset[Point],float] = {edge : 0 for edge in edges}
+for edge in edges:
+	c1,c2 = tuple(edge)
+	v12 = unitVector(getVector(c1,c2))
+	v21 = unitVector(getVector(c2,c1))
+	v1 = angleToVector(terrain['tectonic plate move direction'][c1])
+	v2 = angleToVector(terrain['tectonic plate move direction'][c2])
+	pv12 = unitVector(proj(v1,v12))
+	pv21 = unitVector(proj(v2,v21))
+	sv12 = unitVector(proj(v1,v2))
+	sv21 = unitVector(proj(v2,v1))
+	edge_boundary_convergence[edge] = (dot(pv12,v12) + dot(pv21,v21)) / 2
+	edge_boundary_strikeslip[edge] = (dot(v1,sv12) + dot(v2,sv21)) / 2
+terrain['closest neighbor'] = keyMap(
+	lambda x,y,v : getClosestPoint((x,y),list(centers - {v[x,y]})),
+	terrain['tectonic plates'],
+)
+terrain['edge is overlapping'] = scrMap(
+	lambda u,v : edge_boundary_is_overlapping[frozenset([u,v])][v],
+	terrain['closest neighbor'],
+	terrain['tectonic plates'],
+)
+terrain['edge overlaps'] = scrMap(
+	lambda u,v : edge_boundary_overlaps[frozenset([u,v])],
+	terrain['closest neighbor'],
+	terrain['tectonic plates'],
+)
+terrain['edge boundary convergence'] = scrMap(
+	lambda u,v : int((edge_boundary_convergence[frozenset([u,v])] + 1) * MAX_THICKNESS/2),
+	terrain['closest neighbor'],
+	terrain['tectonic plates'],
+)
+terrain['edge boundary strikeslip'] = scrMap(
+	lambda u,v : int((edge_boundary_strikeslip[frozenset([u,v])] + 1) * MAX_THICKNESS/2),
+	terrain['closest neighbor'],
+	terrain['tectonic plates'],
+)
+terrain['base altitude'] = scrMap(
+	lambda a,b,c : (a + b) / 2 + c,
+	terrain['edge overlaps'],
+	terrain['edge boundary convergence'],
+	terrain['tectonic plate top'],
+)
+terrain['neighbors 2'] = keyMap(
+	lambda x,y,v : get_neighbors(x,y,v),
+	terrain['closest neighbor'],
+)
+terrain['is conjunction 2'] = scrMap(
+	lambda v : len(v) > 1,
+	terrain['neighbors 2'],
+)
+terrain['base altitude'] = keyMap(
+	lambda x,y,u,v : u[x,y] if not v[x,y] else smudge((x,y),u,4),
+	terrain['base altitude'],
+	terrain['is conjunction 2'],
+)
+terrain['base altitude'] = scrMap(
+	lambda v : int(v),
+	terrain['base altitude'],
+)
+max_base_altitiude = max({v for v in terrain['base altitude']})
+top_layer = perlinNoise(
+	size = GRID_SIZE,
+	seed = random.randint(0,255),
+)
+terrain['top layer'] = keyMap(
+	lambda x,y,v : top_layer[x,y],
+	Screen(GRID_SIZE),
+)
 
+terrain['altitude'] = terrain['base altitude']
+max_altitiude = max({v for v in terrain['altitude']})
 
 terrain['lattitude (colored)'] = scrMap(
 	lambda v: (
@@ -328,7 +444,7 @@ terrain['tectonic plate height (colored)'] = scrMap(
 	terrain['tectonic plate height'],
 )
 terrain['tectonic plates (colored)'] = scrMap(
-	lambda v : terrain['noise'][*v],
+	lambda v : terrain['noise'][v],
 	terrain['tectonic plates'],
 )
 terrain['conjunctions (colored)'] = scrMap(
@@ -347,11 +463,75 @@ terrain['edges (colored)'] = scrMap(
 	),
 	terrain['edges'],
 )
+terrain['tectonic plate thickness (colored)'] = scrMap(
+	lambda v : (
+		v * MAX_COLOR/MAX_THICKNESS,
+		v * MAX_COLOR/MAX_THICKNESS,
+		v * MAX_COLOR/MAX_THICKNESS,
+	),
+	terrain['tectonic plate thickness'],
+)
+terrain['closest neighbor (colored)'] = scrMap(
+	lambda v : terrain['noise'][v],
+	terrain['closest neighbor'],
+)
+terrain['edge is overlapping (colored)'] = scrMap(
+	lambda v : (MAX_COLOR,MAX_COLOR,MAX_COLOR) if v else (0,0,0),
+	terrain['edge is overlapping'],
+)
+terrain['edge overlaps (colored)'] = scrMap(
+	lambda v : (
+		int(v * MAX_COLOR/(2*MAX_THICKNESS)),
+		int(v * MAX_COLOR/(2*MAX_THICKNESS)),
+		int(v * MAX_COLOR/(2*MAX_THICKNESS)),
+	),
+	terrain['edge overlaps'],
+)
+terrain['edge boundary convergence (colored)'] = scrMap(
+	lambda v : (
+		int(v * MAX_COLOR/MAX_THICKNESS),
+		int(v * MAX_COLOR/MAX_THICKNESS),
+		int(v * MAX_COLOR/MAX_THICKNESS),
+	),
+	terrain['edge boundary convergence'],
+)
+terrain['edge boundary strikeslip (colored)'] = scrMap(
+	lambda v : (
+		int(v * MAX_COLOR/MAX_THICKNESS),
+		int(v * MAX_COLOR/MAX_THICKNESS),
+		int(v * MAX_COLOR/MAX_THICKNESS),
+	),
+	terrain['edge boundary strikeslip'],
+)
+terrain['base altitude (colored)'] = scrMap(
+	lambda v : (
+		int(v * (MAX_COLOR/max_base_altitiude)),
+		int(v * (MAX_COLOR/max_base_altitiude)),
+		int(v * (MAX_COLOR/max_base_altitiude)),
+	),
+	terrain['base altitude'],
+)
+terrain['altitude (colored)'] = scrMap(
+	lambda v : (
+		int(v * (MAX_COLOR/max_altitiude)),
+		int(v * (MAX_COLOR/max_altitiude)),
+		int(v * (MAX_COLOR/max_altitiude)),
+	),
+	terrain['altitude'],
+)
 
-SCREEN_LAYOUT[0,0] = 'tectonic plate move direction (colored)'
-SCREEN_LAYOUT[1,0] = 'edges (colored)'
-SCREEN_LAYOUT[0,1] = 'tectonic plate height (colored)'
-SCREEN_LAYOUT[1,1] = 'tectonic plates (colored)'
+
+#SCREEN_LAYOUT[0,0] = 'tectonic plate move direction (colored)'
+#SCREEN_LAYOUT[1,0] = 'edges (colored)'
+#SCREEN_LAYOUT[0,1] = 'tectonic plate height (colored)'
+#SCREEN_LAYOUT[1,1] = 'tectonic plates (colored)'
+#SCREEN_LAYOUT[2,0] = 'closest neighbor (colored)'
+#SCREEN_LAYOUT[2,1] = 'tectonic plate thickness (colored)'
+#SCREEN_LAYOUT[3,0] = 'edge boundary convergence (colored)'
+#SCREEN_LAYOUT[3,1] = 'edge boundary strikeslip (colored)'
+#SCREEN_LAYOUT[4,0] = 'edge overlaps (colored)'
+#SCREEN_LAYOUT[4,1] = 'base altitude (colored)'
+SCREEN_LAYOUT[0,0] = 'altitude (colored)'
 
 mapLayout(terrain)
 drawMap()
