@@ -14,6 +14,7 @@ from math import (
 	tan,
 	radians,
 	pi,
+	e,
 )
 from itertools import product
 
@@ -22,9 +23,40 @@ FINAL_SCREEN_LAYOUT = []
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
+GRID_SIZE: int = 256
+CELL_SIZE: int = 2  # Size of each square in pixels
+MAX_ANGLE = 359
+MAX_COLOR = 255
+LATTITUDE_EFFECT_DISTANCE = 1000
+LATTITUDE_EFFECT_STRENGTH = 50
+MAX_THICKNESS = 255
+SNOW_THRESHHOLD = 160
+HUMIDITY_RANGE = (GRID_SIZE >> 5) - 1
+SEA_LEVEL = 130
+TERRAIN_BUSINESS = 1
+TERRAIN_JAGGEDNESS = 8
+AXIS_TILT = 23.44
+DIAMETER = GRID_SIZE/pi
+RADIUS = DIAMETER/2
 
-#  = m(255)2
+# a(x - x0) + b(y - y0) + c(z - z0) = 0
+# a(x - a) + b(y - b) + c(z - c) = 0
+# ax - a2 + by - b2 + cz - c2 = 0
 
+itera = 0
+def prt(v):
+	global itera
+
+	print('  '*itera,end='')
+	print(v)
+def up():
+	global itera
+
+	itera += 1
+def dn():
+	global itera
+
+	itera -= 1
 def perlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> dict[Point,float]:
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
@@ -89,15 +121,63 @@ def getLattitude(y: int) -> float:
 	diameter = circumference/pi
 	radius = diameter/2
 	return radius + (radius**2 + y**2)**0.5
+def getDistance(p1: Point, p2: Point) -> float:
+	dx = abs(p1[0] - p2[0])
+	dy = abs(p1[1] - p2[1])
+	if dx > GRID_SIZE / 2: dx = GRID_SIZE - dx
+	if dy > GRID_SIZE / 2: dy = GRID_SIZE - dy
+	return (dx**2 + dy**2)**0.5
+def getAverageDistance(point: Point,trn: Screen) -> float:
+	distances = []
+
+	for i in range(-HUMIDITY_RANGE,HUMIDITY_RANGE + 1):
+		for j in range(-HUMIDITY_RANGE,HUMIDITY_RANGE + 1):
+			x = (point[0] + i) % GRID_SIZE
+			y = (point[1] + j) % GRID_SIZE
+			if not trn[x,y]:
+				a = getDistance(point,(x,y))
+				if a == 256:
+					print((point,(x,y)))
+				distances.append(a)
+			else:
+				distances.append(GRID_SIZE - 1)
+	x = sum(distances)/len(distances)
+	if x == 256:
+		print(x)
+	return x
+def getCurrentTilt(day: int) -> float:
+	min_tilt = -AXIS_TILT
+	max_tilt = AXIS_TILT
+	return min_tilt + day * (max_tilt - min_tilt)/365
+# float[0,359]
+def lattitudeToAngle(latt: int) -> float:
+	return latt * 359/GRID_SIZE
+# int[0,359]
+def getAngleForDay(latt: int,day: int) -> float:
+	return (lattitudeToAngle(latt) + getCurrentTilt(day)) % 360
+# (float[-RADIUS,RADIUS],float[-RADIUS,RADIUS])
+def getVectorForDay(latt: int,day: int) -> tuple[float,float]:
+	theta = getAngleForDay(latt,day)
+	return (
+		RADIUS * cos(radians(theta)),
+		RADIUS * sin(radians(theta)),
+	)
+# float[-RADIUS**2,RADIUS**2]
+def getSunlightValue(latt: int,day: int) -> float:
+	x,y = getVectorForDay(latt,day)
+	return x * -RADIUS
+# float[-RADIUS**2,RADIUS**2]
+def getNormalizedSunlightValue(latt: int,day: int) -> float:
+	return (
+		getSunlightValue(latt,day) + getSunlightValue(GRID_SIZE - latt,day)
+	)/2
+def getAvgSunlightValue(latt: int) -> float:
+	values = [getNormalizedSunlightValue(latt,day) for day in range(364)]
+	return (sum(values)/len(values) + RADIUS**2) * 255/(2 * RADIUS**2)
+
+TERRAIN: dict[str,Screen] = {}
 
 # Grid settings
-GRID_SIZE: int = 256
-CELL_SIZE: int = 1  # Size of each square in pixels
-MAX_ANGLE = 359
-MAX_COLOR = 255
-MAX_THICKNESS = 255
-SEA_LEVEL = 140
-TERRAIN: dict[str,Screen] = {}
 
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
@@ -122,30 +202,45 @@ def drawMap() -> None:
 				CELL_SIZE,
 				CELL_SIZE,
 			)
-			pygame.draw.rect(window,FINAL_SCREEN_LAYOUT[x][y],rect)
+			try:
+				pygame.draw.rect(window,FINAL_SCREEN_LAYOUT[x][y],rect)
+			except:
+				print(FINAL_SCREEN_LAYOUT[x][y])
+				raise
 	pygame.display.flip()
+
+# y = 10e^(-(x - 127)^2)
 
 pnoise = perlinNoise(
 	size = GRID_SIZE,
 	seed = random.randint(0,255),
-	octaves = 5,
+	scale = TERRAIN_BUSINESS,
+	octaves = TERRAIN_JAGGEDNESS,
 )
+print('generating altitude...')
 TERRAIN['altitude'] = keyMap(
 	lambda x,y,v : (pnoise[x,y] + 1) * 255/2,
 	Screen(GRID_SIZE),
 )
-TERRAIN['lattitude'] = keyMap(
-	lambda x,y,v : -1/(20*(abs(y - GRID_SIZE / 2)-150)),
+print('generating land...')
+TERRAIN['land'] = scrMap(
+	lambda v : v > SEA_LEVEL,
+	TERRAIN['altitude'],
+)
+print('generating humidity...')
+TERRAIN['humidity'] = keyMap(
+	lambda x,y,v : getAverageDistance((x,y),v) if v[x,y] else 0,
+	TERRAIN['land'],
+)
+print('generating sunlight...')
+TERRAIN['sunlight'] = keyMap(
+	lambda x,y,v : getAvgSunlightValue(y),
 	Screen(GRID_SIZE),
 )
-max_latt = max({v for v in TERRAIN['lattitude']})
-min_latt = min({v for v in TERRAIN['lattitude']})
-TERRAIN['lattitude'] = (TERRAIN['lattitude'] - min_latt) * 50/(max_latt - min_latt)
-TERRAIN['altitude'] = TERRAIN['altitude'] + TERRAIN['lattitude']
-max_alt = max({v for v in TERRAIN['altitude']})
-min_alt = min({v for v in TERRAIN['altitude']})
-TERRAIN['is land'] = scrMap(
-	lambda v : v > SEA_LEVEL,
+print('generating snow...')
+TERRAIN['snow'] = scrMap(
+	lambda u,v : (255 - u)/7 + v > SNOW_THRESHHOLD,
+	TERRAIN['sunlight'],
 	TERRAIN['altitude'],
 )
 
@@ -157,20 +252,20 @@ TERRAIN['altitude (colored)'] = scrMap(
 	),
 	TERRAIN['altitude'],
 )
-TERRAIN['lattitude (colored)'] = scrMap(
+TERRAIN['land (colored)'] = scrMap(
+	lambda v : (255,255,255) if v else (0,0,0),
+	TERRAIN['land'],
+)
+TERRAIN['sunlight (colored)'] = scrMap(
 	lambda v : (
 		int(v),
 		int(v),
 		int(v),
 	),
-	TERRAIN['lattitude'],
-)
-TERRAIN['is land (colored)'] = scrMap(
-	lambda v : (255,255,255) if v else (0,0,0),
-	TERRAIN['is land'],
+	TERRAIN['sunlight'],
 )
 TERRAIN['greenery'] = scrMap(
-	lambda u,v : (
+	lambda w,u,v : (255,255,255) if w else (
 		u[0] // 2,
 		u[0] + (255 - u[0]) // 3,
 		u[2] // 2,
@@ -179,18 +274,12 @@ TERRAIN['greenery'] = scrMap(
 		u[1] // 2,
 		(255 + u[0]) // 2,
 	),
+	TERRAIN['snow'],
 	TERRAIN['altitude (colored)'],
-	TERRAIN['is land'],
+	TERRAIN['land'],
 )
+
 SCREEN_LAYOUT[0,0] = 'greenery'
-SCREEN_LAYOUT[1,0] = 'greenery'
-SCREEN_LAYOUT[2,0] = 'greenery'
-SCREEN_LAYOUT[0,1] = 'greenery'
-SCREEN_LAYOUT[1,1] = 'greenery'
-SCREEN_LAYOUT[2,1] = 'greenery'
-SCREEN_LAYOUT[0,2] = 'greenery'
-SCREEN_LAYOUT[1,2] = 'greenery'
-SCREEN_LAYOUT[2,2] = 'greenery'
 
 mapLayout(TERRAIN)
 drawMap()
