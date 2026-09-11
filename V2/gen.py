@@ -36,6 +36,7 @@ SEA_LEVEL = 130
 TERRAIN_BUSINESS = 1
 TERRAIN_JAGGEDNESS = 8
 AXIS_TILT = 23.44
+HUMIDITY_SMUDGE_RADIUS = 12
 DIAMETER = GRID_SIZE/pi
 RADIUS = DIAMETER/2
 
@@ -174,6 +175,24 @@ def getNormalizedSunlightValue(latt: int,day: int) -> float:
 def getAvgSunlightValue(latt: int) -> float:
 	values = [getNormalizedSunlightValue(latt,day) for day in range(364)]
 	return (sum(values)/len(values) + RADIUS**2) * 255/(2 * RADIUS**2)
+def smudge(trn: Screen) -> Screen:
+	points = set()
+	for i in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS):
+		for j in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS):
+			if i**2 + j**2 <= HUMIDITY_SMUDGE_RADIUS**2:
+				points.add((i,j))
+	screen = Screen(GRID_SIZE)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			pts = {
+				(
+					(i + a) % GRID_SIZE,
+					(j + b) % GRID_SIZE,
+				) for (a,b) in points
+			}
+			values = [trn[pt] for pt in pts]
+			screen[i,j] = sum(values)/len(values)
+	return screen
 
 TERRAIN: dict[str,Screen] = {}
 
@@ -228,9 +247,11 @@ TERRAIN['land'] = scrMap(
 	TERRAIN['altitude'],
 )
 print('generating humidity...')
-TERRAIN['humidity'] = keyMap(
-	lambda x,y,v : getAverageDistance((x,y),v) if v[x,y] else 0,
-	TERRAIN['land'],
+TERRAIN['humidity'] = 255 - smudge(
+	scrMap(
+		lambda v : 255 if v else 0,
+		TERRAIN['land'],
+	)
 )
 print('generating sunlight...')
 TERRAIN['sunlight'] = keyMap(
@@ -264,6 +285,14 @@ TERRAIN['sunlight (colored)'] = scrMap(
 	),
 	TERRAIN['sunlight'],
 )
+TERRAIN['humidity (colored)'] = scrMap(
+	lambda v : (
+		int(v),
+		int(v),
+		int(v),
+	),
+	TERRAIN['humidity'],
+)
 TERRAIN['greenery'] = scrMap(
 	lambda w,u,v : (255,255,255) if w else (
 		u[0] // 2,
@@ -280,6 +309,7 @@ TERRAIN['greenery'] = scrMap(
 )
 
 SCREEN_LAYOUT[0,0] = 'greenery'
+SCREEN_LAYOUT[1,0] = 'humidity (colored)'
 
 mapLayout(TERRAIN)
 drawMap()

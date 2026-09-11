@@ -139,6 +139,16 @@ class Screen:
 					screen[i,j] = self[i,j] - other
 			return screen
 		return NotImplemented
+	def __rsub__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return NotImplemented
+		if not isinstance(other,Screen):
+			screen = Screen(self.size)
+			for i in range(self.size):
+				for j in range(self.size):
+					screen[i,j] = other - self[i,j]
+			return screen
+		return NotImplemented
 	def __mul__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
 			screen = Screen(self.size)
