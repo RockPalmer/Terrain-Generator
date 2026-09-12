@@ -1,0 +1,3 @@
+(HUNGER > FOOD) => FOOD++
+(THIRST > WATER) => WATER++
+(LUST > SEX) => SEX++
