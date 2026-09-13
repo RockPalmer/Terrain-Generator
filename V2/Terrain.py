@@ -12,6 +12,8 @@ from math import (
 	radians,
 	pi,
 	e,
+	floor,
+	ceil,
 )
 from pathlib import Path
 
@@ -34,12 +36,18 @@ TERRAIN_BUSINESS: int = 1
 TERRAIN_JAGGEDNESS: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44
-HUMIDITY_SMUDGE_RADIUS = 12
-DIAMETER = GRID_SIZE/pi
-RADIUS = DIAMETER/2
-UI_PANEL_WIDTH = 200
-UI_PANEL_MARGIN = 20
-UI_RECT_COLOR = (255,198,183)
+HUMIDITY_SMUDGE_RADIUS: int = 12
+DIAMETER: float = GRID_SIZE/pi
+RADIUS: float = DIAMETER/2
+UI_PANEL_WIDTH: int = 200
+UI_PANEL_MARGIN: int = 20
+NUM_CONTINENTS: int = 12
+NUM_CONTINENT_RUNS: int = 5
+UI_RECT_COLOR: Color = (255,198,183)
+MAX_COLOR_INTEGER: int = 255**3 - 1
+MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
+
+random.seed(0)
 
 # a(x - x0) + b(y - y0) + c(z - z0) = 0
 # a(x - a) + b(y - b) + c(z - c) = 0
@@ -91,6 +99,13 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
 				frequency *= 2.0
 			noise_map[y,x] = value / amplitude_sum
 	return noise_map
+def pointToColor(point: Point) -> Color:
+	value = round((point[0] * 255 + point[1]) * MAX_COLOR_INTEGER/MAX_POINT_INTEGER)
+	return (
+		value & 255,
+		(value >> 8) & 255,
+		(value >> 16) & 255,
+	)
 def getMaxX(layout: dict[Point,str]) -> int:
 	return max(x for x,_ in layout.keys())
 def getMaxY(layout: dict[Point,str]) -> int:
@@ -146,24 +161,35 @@ def getCurrentTilt(day: int) -> float:
 	min_tilt = -AXIS_TILT
 	max_tilt = AXIS_TILT
 	return min_tilt + day * (max_tilt - min_tilt)/365
-# float[0,359]
 def lattitudeToAngle(latt: int) -> float:
 	return latt * 359/GRID_SIZE
-# int[0,359]
+def randPoint() -> Point:
+	return (
+		random.randint(0,GRID_SIZE),
+		random.randint(0,GRID_SIZE),
+	)
+def randColor() -> Color:
+	return (
+		random.randint(0,255),
+		random.randint(0,255),
+		random.randint(0,255),
+	)
+def getCentroid(points: list[Point]) -> Point:
+	return (
+		round(sum(p[0] for p in points)/len(points)),
+		round(sum(p[1] for p in points)/len(points)),
+	)
 def getAngleForDay(latt: int,day: int) -> float:
 	return (lattitudeToAngle(latt) + getCurrentTilt(day)) % 360
-# (float[-RADIUS,RADIUS],float[-RADIUS,RADIUS])
 def getVectorForDay(latt: int,day: int) -> tuple[float,float]:
 	theta = getAngleForDay(latt,day)
 	return (
 		RADIUS * cos(radians(theta)),
 		RADIUS * sin(radians(theta)),
 	)
-# float[-RADIUS**2,RADIUS**2]
 def getSunlightValue(latt: int,day: int) -> float:
 	x,y = getVectorForDay(latt,day)
 	return x * -RADIUS
-# float[-RADIUS**2,RADIUS**2]
 def getNormalizedSunlightValue(latt: int,day: int) -> float:
 	return (
 		getSunlightValue(latt,day) + getSunlightValue(GRID_SIZE - latt,day)
@@ -189,6 +215,52 @@ def smudge(trn: Screen) -> Screen:
 			values = [trn[pt] for pt in pts]
 			screen[i,j] = sum(values)/len(values)
 	return screen
+def generateNeighborPointsAtRange(radius: int) -> set[Point]:
+	values = {
+		(i,j) : getDistance((0,0),(i,j)) for i in range(
+			-GRID_SIZE//2,
+			GRID_SIZE//2,
+		) for j in range(
+			-GRID_SIZE//2,
+			GRID_SIZE//2,
+		)
+	}
+	return {
+		k for k,v in values.items() if floor(v) <= radius and ceil(radius) >= radius
+	}
+
+print('generating surrounding points...')
+#SURROUNDING_POINTS = {i : generateNeighborPointsAtRange(i) for i in range(GRID_SIZE)}
+
+def generateSurroundingPointsAtRange(point: Point,radius: int) -> list[Point]:
+	x,y = point
+	return sorted(list({
+		(
+			(x + a) % GRID_SIZE,
+			(y + b) % GRID_SIZE,
+		) for a,b in SURROUNDING_POINTS[radius]
+	}))
+def getClosestBorderPoint(point: Point,plates: Screen) -> Point:
+	value = plates[point]
+	other_plates = {}
+	radius = 1
+	while len(other_plates):
+		for p in generateSurroundingPointsAtRange(point,radius):
+			if plates[p] != value:
+				other_plates[p] = getDistance(point,p)
+		radius += 1
+	vals = list(other_plates.items())
+	minDist = min({v for _,v in vals})
+	index = [k for k,v in vals if v == minDist][0]
+	return vals[index][0]
+def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None) -> Point:
+	if noise_diff is None:
+		dists = [getDistance(point,p) for p in points]
+	else:
+		dists = [getDistance(point,p) + noise_diff for p in points]
+	minDist = min(dists)
+	minDistIndex = [i for i,dist in enumerate(dists) if dist == minDist][0]
+	return points[minDistIndex]
 def getAltitude() -> Screen:
 	filename = Path(f"altitude_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}.json")
 	if filename.is_file():
@@ -200,7 +272,7 @@ def getAltitude() -> Screen:
 			Screen(GRID_SIZE),
 		)
 	pnoise = perlinNoise(
-		seed = NOISE_SEED,
+		seed = random.randint(0,255),
 		scale = TERRAIN_BUSINESS,
 		octaves = TERRAIN_JAGGEDNESS,
 	)
@@ -274,7 +346,7 @@ def getSunlight() -> Screen:
 		Screen(GRID_SIZE),
 	)
 def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"snow_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}_{str(AXIS_TILT).replace('.','_')}.json")
+	filename = Path(f"snow_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}_{str(AXIS_TILT).replace('.','-')}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -326,6 +398,68 @@ def getGreenery(
 		altitude,
 		land,
 	)
+def getTectonicNoise():
+	filename = Path(f"pnoise_{NOISE_SEED}_{GRID_SIZE}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
+	pnoise = scrMap(
+		lambda v : round((v + 1) * 16),
+		perlinNoise(
+			seed = random.randint(0,255),
+			scale = 0.75,
+			octaves = 1,
+		),
+	)
+	values = [[pnoise[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return pnoise
+def getTectonicPlates(*,pnoise: Screen|None = None) -> Screen:
+	filename = Path(f"tectonicPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
+	points = set()
+	while len(points) < NUM_CONTINENTS:
+		points.add(randPoint())
+	points = list(points)
+	tectonicPlates = keyMap(
+		lambda x,y,v : getClosestPoint((x,y),points),
+		Screen(GRID_SIZE)
+	)
+	if pnoise is None:
+		pnoise = getTectonicNoise()
+	for i in range(NUM_CONTINENT_RUNS):
+		for j in range(NUM_CONTINENTS):
+			coords = [(x,y) for (x,y),_ in tectonicPlates.enumerate() if tectonicPlates[x,y] == points[j]]
+			points[j] = getCentroid(coords)
+		tectonicPlates = keyMap(
+			lambda x,y,v : getClosestPoint((x + pnoise[x,y],y + pnoise[x,y]),points),
+			Screen(GRID_SIZE)
+		)
+	tectonicPlates = keyMap(
+		lambda x,y,v : getClosestPoint((x + v[x,y],y + v[x,y]),points),
+		pnoise,
+	)
+	values = [[tectonicPlates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return tectonicPlates
+def getTectonicPlateDirection():
+
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -337,6 +471,11 @@ def addColor(trn: dict[str,Screen]) -> None:
 		elif isinstance(trn[k][0,0],int|float):
 			trn[f"{k} (colored)"] = scrMap(
 				lambda v : (int(v),int(v),int(v)),
+				trn[k],
+			)
+		elif isinstance(trn[k][0,0],tuple) and len(trn[k][0,0]) == 2:
+			trn[f"{k} (colored)"] = scrMap(
+				lambda v : pointToColor(v),
 				trn[k],
 			)
 
@@ -384,33 +523,28 @@ def drawMap() -> None:
 # y = 10e^(-(x - 127)^2)
 
 print('generating altitude...')
-TERRAIN['altitude'] = getAltitude()
+#TERRAIN['altitude'] = getAltitude()
 print('generating land...')
-TERRAIN['land'] = getLand(
-	altitude = TERRAIN['altitude'],
-)
+#TERRAIN['land'] = getLand(altitude = TERRAIN['altitude'])
 print('generating humidity...')
-TERRAIN['humidity'] = getHumidity(
-	land = TERRAIN['land'],
-)
+#TERRAIN['humidity'] = getHumidity(land = TERRAIN['land'])
 print('generating sunlight...')
-TERRAIN['sunlight'] = getSunlight()
+#TERRAIN['sunlight'] = getSunlight()
 print('generating snow...')
-TERRAIN['snow'] = getSnow(
-	sunlight = TERRAIN['sunlight'],
-	altitude = TERRAIN['altitude'],
-)
+#TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude'])
+print('generating pnoise...')
+TERRAIN['pnoise'] = getTectonicNoise()
+print('generating tectonic plates...')
+TERRAIN['tectonic plates'] = getTectonicPlates(pnoise = TERRAIN['pnoise'])
 print('generating greenery...')
-TERRAIN['greenery'] = getGreenery(
-	snow = TERRAIN['snow'],
-	altitude = TERRAIN['altitude'],
-	land = TERRAIN['land'],
-)
+#TERRAIN['greenery'] = getGreenery(snow = TERRAIN['snow'],altitude = TERRAIN['altitude'],land = TERRAIN['land'])
 
+print(TERRAIN.keys())
 addColor(TERRAIN)
+print(TERRAIN.keys())
 
-SCREEN_LAYOUT[0,0] = 'greenery'
-SCREEN_LAYOUT[1,0] = 'humidity (colored)'
+SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
+SCREEN_LAYOUT[1,0] = 'pnoise (colored)'
 
 mapLayout(TERRAIN)
 drawMap()
