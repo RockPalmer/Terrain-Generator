@@ -32,8 +32,8 @@ MAX_THICKNESS: int = 255
 HUMIDITY_RANGE: int = (GRID_SIZE >> 5) - 1
 SEA_LEVEL: int = 130
 SNOW_LEVEL: int = 160
-TERRAIN_BUSINESS: int = 1
-TERRAIN_JAGGEDNESS: int = 8
+TERRAIN_NOISE_SCALE: int = 1
+TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44
 HUMIDITY_SMUDGE_RADIUS: int = 12
@@ -54,6 +54,7 @@ random.seed(0)
 # ax - a2 + by - b2 + cz - c2 = 0
 
 itera = 0
+
 def prt(v):
 	global itera
 
@@ -74,6 +75,15 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
 	Returns:
 	    list[list[float]]: values approximately [-1, 1]
 	"""
+	filename = Path(f"pnoise_{GRID_SIZE}_{seed}_{scale}_{octaves}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
 	rng = random.Random(seed)
 	seed_offset = rng.random() * 10000.0
 	noise_map = Screen(GRID_SIZE)
@@ -98,6 +108,10 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
 				amplitude *= 0.5
 				frequency *= 2.0
 			noise_map[y,x] = value / amplitude_sum
+	values = [[noise_map[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
 	return noise_map
 def pointToColor(point: Point) -> Color:
 	value = round((point[0] * 255 + point[1]) * MAX_COLOR_INTEGER/MAX_POINT_INTEGER)
@@ -262,7 +276,7 @@ def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None
 	minDistIndex = [i for i,dist in enumerate(dists) if dist == minDist][0]
 	return points[minDistIndex]
 def getAltitude() -> Screen:
-	filename = Path(f"altitude_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}.json")
+	filename = Path(f"altitude_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -273,8 +287,8 @@ def getAltitude() -> Screen:
 		)
 	pnoise = perlinNoise(
 		seed = random.randint(0,255),
-		scale = TERRAIN_BUSINESS,
-		octaves = TERRAIN_JAGGEDNESS,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
 	)
 	values = [[(pnoise[x,y] + 1) * 255/2 for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
@@ -282,10 +296,10 @@ def getAltitude() -> Screen:
 		f.write(content)
 	return scrMap(
 		lambda v : (v + 1) * 255/2,
-		pnoise
+		pnoise,
 	)
 def getLand(*,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"land_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}_{SEA_LEVEL}.json")
+	filename = Path(f"land_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{SEA_LEVEL}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -305,7 +319,7 @@ def getLand(*,altitude: Screen|None = None) -> Screen:
 		altitude,
 	)
 def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"humidity_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}_{SEA_LEVEL}_{HUMIDITY_SMUDGE_RADIUS}.json")
+	filename = Path(f"humidity_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{SEA_LEVEL}_{HUMIDITY_SMUDGE_RADIUS}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -346,7 +360,7 @@ def getSunlight() -> Screen:
 		Screen(GRID_SIZE),
 	)
 def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"snow_{NOISE_SEED}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}_{GRID_SIZE}_{str(AXIS_TILT).replace('.','-')}.json")
+	filename = Path(f"snow_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{str(AXIS_TILT).replace('.','-')}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -398,37 +412,14 @@ def getGreenery(
 		altitude,
 		land,
 	)
-def getTectonicNoise():
-	filename = Path(f"pnoise_{NOISE_SEED}_{GRID_SIZE}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}.json")
+def getTectonicPlates() -> Screen:
+	filename = Path(f"tectonicPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
 		values = json.loads(content)
 		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	pnoise = scrMap(
-		lambda v : round((v + 1) * 16),
-		perlinNoise(
-			seed = random.randint(0,255),
-			scale = 0.75,
-			octaves = 1,
-		),
-	)
-	values = [[pnoise[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return pnoise
-def getTectonicPlates(*,pnoise: Screen|None = None) -> Screen:
-	filename = Path(f"tectonicPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_BUSINESS}_{TERRAIN_JAGGEDNESS}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
+			lambda x,y,v : tuple(values[x][y]),
 			Screen(GRID_SIZE),
 		)
 	points = set()
@@ -439,27 +430,53 @@ def getTectonicPlates(*,pnoise: Screen|None = None) -> Screen:
 		lambda x,y,v : getClosestPoint((x,y),points),
 		Screen(GRID_SIZE)
 	)
-	if pnoise is None:
-		pnoise = getTectonicNoise()
 	for i in range(NUM_CONTINENT_RUNS):
 		for j in range(NUM_CONTINENTS):
 			coords = [(x,y) for (x,y),_ in tectonicPlates.enumerate() if tectonicPlates[x,y] == points[j]]
 			points[j] = getCentroid(coords)
 		tectonicPlates = keyMap(
-			lambda x,y,v : getClosestPoint((x + pnoise[x,y],y + pnoise[x,y]),points),
+			lambda x,y,v : getClosestPoint((x,y),points),
 			Screen(GRID_SIZE)
 		)
-	tectonicPlates = keyMap(
-		lambda x,y,v : getClosestPoint((x + v[x,y],y + v[x,y]),points),
-		pnoise,
-	)
 	values = [[tectonicPlates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return tectonicPlates
-def getTectonicPlateDirection():
-
+def getNeighborsOfPoint(point: Point,values: Screen) -> list:
+	vals = set()
+	x,y = point
+	points = {
+		(x - 1,y - 1),
+		(x - 1,y),
+		(x - 1,y + 1),
+		(x,y - 1),
+		(x,y),
+		(x,y + 1),
+		(x + 1,y - 1),
+		(x + 1,y),
+		(x + 1,y + 1),
+	}
+	points = {(x,y) for x,y in points if x >= 0 and y >= 0 and x < GRID_SIZE and y < GRID_SIZE}
+	for point in points:
+		vals.add(values[point])
+	return list(vals)
+def getNeighbors(plates: Screen|None = None) -> Screen:
+	filename = Path(f"tectonicNeighbors_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : tuple(values[x][y]),
+			Screen(GRID_SIZE),
+		)
+	neighbors = keyMap(
+		lambda x,y,v : getNeighborsOfPoint((x,y),v),
+		plates,
+	)
+	values = [[neighbors[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -532,19 +549,15 @@ print('generating sunlight...')
 #TERRAIN['sunlight'] = getSunlight()
 print('generating snow...')
 #TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude'])
-print('generating pnoise...')
-TERRAIN['pnoise'] = getTectonicNoise()
 print('generating tectonic plates...')
-TERRAIN['tectonic plates'] = getTectonicPlates(pnoise = TERRAIN['pnoise'])
+TERRAIN['tectonic plates'] = getTectonicPlates()
 print('generating greenery...')
 #TERRAIN['greenery'] = getGreenery(snow = TERRAIN['snow'],altitude = TERRAIN['altitude'],land = TERRAIN['land'])
 
-print(TERRAIN.keys())
 addColor(TERRAIN)
 print(TERRAIN.keys())
 
 SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
-SCREEN_LAYOUT[1,0] = 'pnoise (colored)'
 
 mapLayout(TERRAIN)
 drawMap()
