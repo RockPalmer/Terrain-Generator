@@ -263,15 +263,19 @@ def generateNeighborsAtRange(point: Point,radius: int) -> set[Point]:
 	}
 def getClosestBorderPoint(point: Point,plates: Screen) -> Point:
 	points = set()
-	x,y = point
-	r = 0
+	r = 1
 	while len(points) == 0:
-		points |= {(i,j) for i,j in generateNeighborsAtRange(point,r) if plates[x,y] != plates[i,j]}
+		points |= {p for p in generateNeighborsAtRange(point,r) if plates[point] != plates[p]}
 		r += 1
 	points = list(points)
-	dists = [getDistance((x,y),p) for p in points]
+	plts = [plates[p] for p in points]
+	if plates[point] in plts:
+		raise ValueError
+	dists = [getDistance(point,p) for p in points]
 	minDist = min(dists)
 	index = dists.index(minDist)
+	if plates[points[index]] == plates[point]:
+		raise ValueError
 	return points[index]
 def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None) -> Point:
 	if noise_diff is None:

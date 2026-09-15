@@ -520,7 +520,6 @@ terrain['altitude (colored)'] = scrMap(
 	terrain['altitude'],
 )
 
-
 #SCREEN_LAYOUT[0,0] = 'tectonic plate move direction (colored)'
 #SCREEN_LAYOUT[1,0] = 'edges (colored)'
 #SCREEN_LAYOUT[0,1] = 'tectonic plate height (colored)'
