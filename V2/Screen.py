@@ -113,81 +113,94 @@ class Screen:
 			case _: raise KeyError
 	def __add__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] + other[i,j]
-			return screen
+			return scrMap(
+				lambda u,v : u + v,
+				self,
+				other,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] + other
-			return screen
+			return scrMap(
+				lambda u : u + other,
+				self,
+			)
 		return NotImplemented
 	def __sub__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] - other[i,j]
-			return screen
+			return scrMap(
+				lambda u,v : u - v,
+				self,
+				other,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] - other
-			return screen
+			return scrMap(
+				lambda u : u - other,
+				self,
+			)
 		return NotImplemented
 	def __rsub__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			return NotImplemented
+			return scrMap(
+				lambda u,v : u - v,
+				other,
+				self,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = other - self[i,j]
-			return screen
+			return scrMap(
+				lambda u : other - u,
+				self,
+			)
 		return NotImplemented
 	def __mul__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] * other[i,j]
-			return screen
+			return scrMap(
+				lambda u,v : u * v,
+				self,
+				other,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] * other
-			return screen
+			return scrMap(
+				lambda u : u * other,
+				self,
+			)
 		return NotImplemented
 	def __truediv__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] / other[i,j]
-			return screen
+			return scrMap(
+				lambda u,v : u / v,
+				self,
+				other,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] / other
-			return screen
+			return scrMap(
+				lambda u : u / other,
+				self,
+			)
 		return NotImplemented
 	def __floordiv__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] // other[i,j]
-			return screen
+			return scrMap(
+				lambda u,v : u // v,
+				self,
+				other,
+			)
 		if not isinstance(other,Screen):
-			screen = Screen(self.size)
-			for i in range(self.size):
-				for j in range(self.size):
-					screen[i,j] = self[i,j] // other
-			return screen
+			return scrMap(
+				lambda u : u // other,
+				self,
+			)
 		return NotImplemented
+	def __neg__(self) -> Screen:
+		return scrMap(
+			lambda v : -v,
+			self,
+		)
+	def __pos__(self) -> Screen:
+		return scrMap(
+			lambda v : +v,
+			self,
+		)
+	def __abs__(self) -> Screen:
+		return scrMap(
+			lambda v : abs(v),
+			self,
+		)

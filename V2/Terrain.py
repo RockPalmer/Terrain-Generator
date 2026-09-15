@@ -45,6 +45,7 @@ NUM_CONTINENTS: int = 12
 NUM_CONTINENT_RUNS: int = 5
 UI_RECT_COLOR: Color = (255,198,183)
 MAX_COLOR_INTEGER: int = 255**3 - 1
+ADJUSTED_EDGE_AMPLITUDE: int = 32
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
 
 random.seed(0)
@@ -69,6 +70,7 @@ def dn():
 
 	itera -= 1
 def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
+	print('generating perlin noise...')
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
 
@@ -153,6 +155,19 @@ def getDistance(p1: Point, p2: Point) -> float:
 	if dx > GRID_SIZE / 2: dx = GRID_SIZE - dx
 	if dy > GRID_SIZE / 2: dy = GRID_SIZE - dy
 	return (dx**2 + dy**2)**0.5
+def getVector(p1: Point,p2: Point) -> tuple[int,int]:
+	return (
+		((p2[0] - p1[0] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
+		((p2[1] - p1[1] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
+	)
+def getVectorFromAngle(theta: int) -> tuple[float,float]:
+	r = radians(theta)
+	return (
+		cos(r),
+		sin(r),
+	)
+def dot(v1: tuple,v2: tuple) -> tuple:
+	return v1[0] * v2[0] + v1[1] * v2[1]
 def getAverageDistance(point: Point,trn: Screen) -> float:
 	distances = []
 
@@ -229,44 +244,29 @@ def smudge(trn: Screen) -> Screen:
 			values = [trn[pt] for pt in pts]
 			screen[i,j] = sum(values)/len(values)
 	return screen
-def generateNeighborPointsAtRange(radius: int) -> set[Point]:
-	values = {
-		(i,j) : getDistance((0,0),(i,j)) for i in range(
-			-GRID_SIZE//2,
-			GRID_SIZE//2,
-		) for j in range(
-			-GRID_SIZE//2,
-			GRID_SIZE//2,
-		)
-	}
-	return {
-		k for k,v in values.items() if floor(v) <= radius and ceil(radius) >= radius
-	}
-
-print('generating surrounding points...')
-#SURROUNDING_POINTS = {i : generateNeighborPointsAtRange(i) for i in range(GRID_SIZE)}
-
-def generateSurroundingPointsAtRange(point: Point,radius: int) -> list[Point]:
+def generateNeighborsAtRange(point: Point,radius: int) -> set[Point]:
 	x,y = point
-	return sorted(list({
-		(
-			(x + a) % GRID_SIZE,
-			(y + b) % GRID_SIZE,
-		) for a,b in SURROUNDING_POINTS[radius]
-	}))
+	return {
+		((x - radius) % GRID_SIZE,(y + i) % GRID_SIZE) for i in range(-radius,radius + 1)
+	} | {
+		((x + radius) % GRID_SIZE,(y + i) % GRID_SIZE) for i in range(-radius,radius + 1)
+	} | {
+		((x + i) % GRID_SIZE,(y - radius) % GRID_SIZE) for i in range(-radius,radius + 1)
+	} | {
+		((x + i) % GRID_SIZE,(y + radius) % GRID_SIZE) for i in range(-radius,radius + 1)
+	}
 def getClosestBorderPoint(point: Point,plates: Screen) -> Point:
-	value = plates[point]
-	other_plates = {}
-	radius = 1
-	while len(other_plates):
-		for p in generateSurroundingPointsAtRange(point,radius):
-			if plates[p] != value:
-				other_plates[p] = getDistance(point,p)
-		radius += 1
-	vals = list(other_plates.items())
-	minDist = min({v for _,v in vals})
-	index = [k for k,v in vals if v == minDist][0]
-	return vals[index][0]
+	points = set()
+	x,y = point
+	r = 0
+	while len(points) == 0:
+		points |= {(i,j) for i,j in generateNeighborsAtRange(point,r) if plates[x,y] != plates[i,j]}
+		r += 1
+	points = list(points)
+	dists = [getDistance((x,y),p) for p in points]
+	minDist = min(dists)
+	index = dists.index(minDist)
+	return points[index]
 def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None) -> Point:
 	if noise_diff is None:
 		dists = [getDistance(point,p) for p in points]
@@ -275,6 +275,32 @@ def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None
 	minDist = min(dists)
 	minDistIndex = [i for i,dist in enumerate(dists) if dist == minDist][0]
 	return points[minDistIndex]
+def getNeighborsOfPoint(point: Point,values: Screen) -> list:
+	vals = set()
+	x,y = point
+	points = {
+		(x - 1,y - 1),
+		(x - 1,y),
+		(x - 1,y + 1),
+		(x,y - 1),
+		(x,y),
+		(x,y + 1),
+		(x + 1,y - 1),
+		(x + 1,y),
+		(x + 1,y + 1),
+	}
+	points = {(x,y) for x,y in points if x >= 0 and y >= 0 and x < GRID_SIZE and y < GRID_SIZE}
+	for point in points:
+		vals.add(values[point])
+	return list(vals)
+def getClosestBorderAndDist(point: Point,plates: Screen) -> tuple[Point,float]:
+	for i in range(GRID_SIZE):
+		points = [p for p in generateNeighborsAtRange(point,i) if plates[p] != plates[point]]
+		if len(points) > 0: break
+	dists = [getDistance(p,point) for p in points]
+	minDist = min(dists)
+	index = dists.index(minDist)
+	return (plates[points[index]],minDist)
 def getAltitude() -> Screen:
 	filename = Path(f"altitude_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}.json")
 	if filename.is_file():
@@ -412,8 +438,53 @@ def getGreenery(
 		altitude,
 		land,
 	)
-def getTectonicPlates() -> Screen:
-	filename = Path(f"tectonicPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}.json")
+def getNeighbors(*,plates: Screen|None = None) -> Screen:
+	print('generating neighbors...')
+	filename = Path(f"neighbors_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : [tuple(v) for v in values[x][y]],
+			Screen(GRID_SIZE),
+		)
+	if plates is None:
+		plates = getPlates()
+	neighbors = keyMap(
+		lambda x,y,v : getNeighborsOfPoint((x,y),v),
+		plates,
+	)
+	values = [[neighbors[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return neighbors
+def getEdges(*,neighbors: Screen|None = None,plates: Screen|None = None) -> Screen:
+	print('generating edges...')
+	filename = Path(f"edges_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
+	if neighbors is None:
+		neighbors = getPlates(plates = plates)
+	edges = scrMap(
+		lambda v : len(v) == 2,
+		neighbors,
+	)
+	values = [[edges[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return edges
+def getPlates() -> Screen:
+	print('generating plates...')
+	filename = Path(f"plates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -426,43 +497,26 @@ def getTectonicPlates() -> Screen:
 	while len(points) < NUM_CONTINENTS:
 		points.add(randPoint())
 	points = list(points)
-	tectonicPlates = keyMap(
+	plates = keyMap(
 		lambda x,y,v : getClosestPoint((x,y),points),
 		Screen(GRID_SIZE)
 	)
 	for i in range(NUM_CONTINENT_RUNS):
 		for j in range(NUM_CONTINENTS):
-			coords = [(x,y) for (x,y),_ in tectonicPlates.enumerate() if tectonicPlates[x,y] == points[j]]
+			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
 			points[j] = getCentroid(coords)
-		tectonicPlates = keyMap(
+		plates = keyMap(
 			lambda x,y,v : getClosestPoint((x,y),points),
 			Screen(GRID_SIZE)
 		)
-	values = [[tectonicPlates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	values = [[plates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
-	return tectonicPlates
-def getNeighborsOfPoint(point: Point,values: Screen) -> list:
-	vals = set()
-	x,y = point
-	points = {
-		(x - 1,y - 1),
-		(x - 1,y),
-		(x - 1,y + 1),
-		(x,y - 1),
-		(x,y),
-		(x,y + 1),
-		(x + 1,y - 1),
-		(x + 1,y),
-		(x + 1,y + 1),
-	}
-	points = {(x,y) for x,y in points if x >= 0 and y >= 0 and x < GRID_SIZE and y < GRID_SIZE}
-	for point in points:
-		vals.add(values[point])
-	return list(vals)
-def getNeighbors(plates: Screen|None = None) -> Screen:
-	filename = Path(f"tectonicNeighbors_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}.json")
+	return plates
+def getClosestBorder(*,plates: Screen|None = None) -> tuple[Screen,Screen]:
+	print('generating closest border...')
+	filename = Path(f"closestBorder_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -471,12 +525,129 @@ def getNeighbors(plates: Screen|None = None) -> Screen:
 			lambda x,y,v : tuple(values[x][y]),
 			Screen(GRID_SIZE),
 		)
-	neighbors = keyMap(
-		lambda x,y,v : getNeighborsOfPoint((x,y),v),
+	if plates is None:
+		plates = getPlates()
+	closestBorder = keyMap(
+		lambda x,y,v : getClosestBorderPoint((x,y),v),
 		plates,
 	)
-	values = [[neighbors[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	
+	values = [[closestBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return closestBorder
+def getDistToBorder(*,closestBorder: Screen|None = None,plates: Screen|None = None) -> tuple[Screen,Screen]:
+	print('generating distance to border...')
+	filename = Path(f"distToBorder_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
+	if closestBorder is None:
+		closestBorder = getClosestBorder(plates = plates)
+	distToBorder = keyMap(
+		lambda x,y,v : getDistance((x,y),v[x,y]),
+		closestBorder,
+	)
+	values = [[distToBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return distToBorder
+def getAdjustedPlates(*,plates: Screen|None = None,pnoise: Screen|None = None,neighbors: Screen|None = None,closestBorder: Screen|None = None,distToBorder: Screen|None = None) -> Screen:
+	print('generating adjusted tectonic plates...')
+	filename = Path(f"adjustedPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{str(TERRAIN_NOISE_OCTAVES).replace('.','-')}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : tuple(values[x][y]),
+			Screen(GRID_SIZE),
+		)
+	if plates is None:
+		plates = getPlates()
+	if pnoise is None:
+		pnoise = perlinNoise(
+			seed = NOISE_SEED,
+			scale = TERRAIN_NOISE_SCALE,
+			octaves = TERRAIN_NOISE_OCTAVES,
+		)
+	if closestBorder is None:
+		closestBorder = getClosestBorder(plates = plates)
+	if distToBorder is None:
+		distToBorder = getDistToBorder(closestBorder = closestBorder,plates = plates)
+	if neighbors is None:
+		neighbors = getNeighbors(plates = plates)
+	chosen = set()
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			chosen.add(frozenset(neighbors[i,j]))
+	chosen = {c : list(c)[0] for c in chosen}
+	adjustedPlates = keyMap(
+		lambda x,y,a,b,c,d : c[a[x,y]] if d[x,y] + b[x,y] * ADJUSTED_EDGE_AMPLITUDE < 0 and chosen[frozenset([c[x,y],c[a[x,y]]])] == c[a[x,y]] else c[x,y],
+		closestBorder,
+		pnoise,
+		plates,
+		distToBorder,
+	)
+	values = [[adjustedPlates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return adjustedPlates
+def getPlates2(*,pnoise: Screen|None = None) -> Screen:
+	print('generating plates2...')
+	filename = Path(f"plates2_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : tuple(values[x][y]),
+			Screen(GRID_SIZE),
+		)
+	if pnoise is None:
+		pnoise = perlinNoise(
+			seed = NOISE_SEED,
+			scale = TERRAIN_NOISE_SCALE,
+			octaves = TERRAIN_NOISE_OCTAVES,
+		)
+	perlin = (pnoise + 1) * ADJUSTED_EDGE_AMPLITUDE/2
+	points = set()
+	while len(points) < NUM_CONTINENTS:
+		points.add(randPoint())
+	points = list(points)
+	plates = keyMap(
+		lambda x,y,v : getClosestPoint((x + perlin[x,y],y + perlin[x,y]),points),
+		Screen(GRID_SIZE)
+	)
+	for i in range(NUM_CONTINENT_RUNS):
+		for j in range(NUM_CONTINENTS):
+			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
+			points[j] = getCentroid(coords)
+		plates = keyMap(
+			lambda x,y,v : getClosestPoint((x + perlin[x,y],y + perlin[x,y]),points),
+			Screen(GRID_SIZE)
+		)
+	swaps = {p for p in points}
+	for i in range(NUM_CONTINENT_RUNS):
+		for j in range(NUM_CONTINENTS):
+			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
+			swaps[points[j]] = getCentroid(coords)
+	plates = scrMap(
+		lambda v : swaps[v],
+		plates,
+	)
+	values = [[plates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return plates
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -495,6 +666,54 @@ def addColor(trn: dict[str,Screen]) -> None:
 				lambda v : pointToColor(v),
 				trn[k],
 			)
+def getDirections(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen:
+	filename = Path(f"directions_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		values = json.loads(content)
+		return keyMap(
+			lambda x,y,v : values[x][y],
+			Screen(GRID_SIZE),
+		)
+	if plates is None:
+		plates = getPlates2(pnoise = pnoise)
+	values = {center for center in plates}
+	direcs = {center : random.randint(0,359) for center in centers}
+	directions = scrMap(
+		lambda v : direcs[v],
+		plates,
+	)
+	values = [[directions[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return directions
+def getConjunctions(*,plates: Screen,neighbors: Screen|None = None) -> set[frozenset]:
+	if neighbors is None:
+		neighbors = getEdges(plates = plates)
+	return {frozenset(v) for v in neighbors if len(v) > 1}
+def getPairs(*,plates: Screen,neighbors: Screen|None = None) -> set[frozenset]:
+	conjunctions = getConjunctions(plates = plates,neighbors = neighbors)
+	pairs = set()
+	for v in conjunctions:
+		if len(v) == 2:
+			pairs.add(v)
+		else:
+			vals = {frozenset(u) for u in product(v,v)} - {frozenset([u,u]) for u in v}
+			pairs |= vals
+	return pairs
+def getConvergence(*,plates: Screen,neighbors: Screen|None = None,directions: Screen|None = None):
+	pairs = getPairs(plates = plates,neighbors = neighbors)
+	vals = {}
+	for pair in pairs:
+		c1,c2 = tuple(pair)
+		v12 = getVector(c1,c2)
+		v21 = getVector(c2,c1)
+		d1 = getVectorFromAngle(directions[c1])
+		d2 = getVectorFromAngle(directions[c2])
+		vals[pair] = (dot(v12,d1) + dot(v21,d2))/2
+	return vals
 
 TERRAIN: dict[str,Screen] = {}
 
@@ -539,25 +758,24 @@ def drawMap() -> None:
 
 # y = 10e^(-(x - 127)^2)
 
-print('generating altitude...')
 #TERRAIN['altitude'] = getAltitude()
-print('generating land...')
 #TERRAIN['land'] = getLand(altitude = TERRAIN['altitude'])
-print('generating humidity...')
 #TERRAIN['humidity'] = getHumidity(land = TERRAIN['land'])
-print('generating sunlight...')
 #TERRAIN['sunlight'] = getSunlight()
-print('generating snow...')
 #TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude'])
-print('generating tectonic plates...')
-TERRAIN['tectonic plates'] = getTectonicPlates()
-print('generating greenery...')
+#TERRAIN['tectonic plates'] = getPlates()
+TERRAIN['pnoise'] = perlinNoise(
+	seed = NOISE_SEED,
+	scale = TERRAIN_NOISE_SCALE,
+	octaves = TERRAIN_NOISE_OCTAVES,
+)
+TERRAIN['plates'] = getPlates2(pnoise = TERRAIN['pnoise'])
+#TERRAIN['adjusted tectonic plates'] = getAdjustedPlates(plates = TERRAIN['tectonic plates'],pnoise = TERRAIN['pnoise'])
 #TERRAIN['greenery'] = getGreenery(snow = TERRAIN['snow'],altitude = TERRAIN['altitude'],land = TERRAIN['land'])
 
 addColor(TERRAIN)
-print(TERRAIN.keys())
 
-SCREEN_LAYOUT[0,0] = 'tectonic plates (colored)'
+SCREEN_LAYOUT[0,0] = 'plates (colored)'
 
 mapLayout(TERRAIN)
 drawMap()
