@@ -460,52 +460,13 @@ TERRAIN['midworld greenery'] = getBottomGreenery(
 TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
 	connected = TERRAIN['overworld-midworld connections'],
 )
-TERRAIN['midworld surface flow vector x'] = Screen(GRID_SIZE)
-TERRAIN['midworld surface flow vector y'] = Screen(GRID_SIZE)
-TERRAIN['midworld surface flow divergence'] = Screen(GRID_SIZE)
-for x in range(GRID_SIZE):
-	for y in range(GRID_SIZE):
-		if not TERRAIN['overworld-midworld connections'][x,y]:
-			tl = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-			tc = TERRAIN['midworld surface'][x,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][x,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-			tr = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-
-			ml = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,y] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,y] else MIDWORLD_SURFACE_MAX
-			mc = TERRAIN['midworld surface'][x,y]
-			mr = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,y] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,y] else MIDWORLD_SURFACE_MAX
-
-			bl = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-			bc = TERRAIN['midworld surface'][x,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][x,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-			br = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
-
-			TERRAIN['midworld surface flow vector x'][x,y] = ((tr + 2*mr + br) - (tl + 2*ml + bl)) / 8
-			TERRAIN['midworld surface flow vector y'][x,y] = ((bl + 2*bc + br) - (tl + 2*tc + tr)) / 8
-		else:
-			TERRAIN['midworld surface flow vector x'][x,y] = 0
-			TERRAIN['midworld surface flow vector y'][x,y] = 0
-for x in range(GRID_SIZE):
-	for y in range(GRID_SIZE):
-		if not TERRAIN['overworld-midworld connections'][x,y]:
-			TERRAIN['midworld surface flow divergence'][x,y] = (
-				TERRAIN['midworld surface flow vector x'][(x + 1) % GRID_SIZE,y] - TERRAIN['midworld surface flow vector x'][(x - 1) % GRID_SIZE,y]
-			) / 2 + (
-				TERRAIN['midworld surface flow vector y'][x,(y + 1) % GRID_SIZE] - TERRAIN['midworld surface flow vector y'][x,(y - 1) % GRID_SIZE]
-			) / 2
-		else:
-			TERRAIN['midworld surface flow divergence'][x,y] = None
-vals = {v for v in TERRAIN['midworld surface flow divergence'] if v is not None}
-minval = min(vals)
-maxval = max(vals)
-TERRAIN['midworld surface flow divergence'] = scrMap(
-	lambda v : COLOR_SCALE[int((v + minval) * len(COLOR_SCALE)/(maxval - minval))] if v is not None else (0,0,0),
-	TERRAIN['midworld surface flow divergence'],
-)
+TERRAIN['potential midworld water'] = scrMap(bool,~(TERRAIN['overworld-midworld connections'] | TERRAIN['overworld land']))
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld greenery'
-SCREEN_LAYOUT[1,0] = 'midworld greenery'
-SCREEN_LAYOUT[2,0] = 'midworld surface flow divergence'
+SCREEN_LAYOUT[0,0] = 'overworld-midworld connections (colored)'
+SCREEN_LAYOUT[1,0] = 'overworld land (colored)'
+SCREEN_LAYOUT[2,0] = 'potential midworld water (colored)'
 
 mapLayout(TERRAIN)
 drawMap()
