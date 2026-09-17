@@ -3,13 +3,14 @@ from perlin import perlin4
 from Screen import (
 	scrMap,
 	keyMap,
+	ifMap,
 	Screen,
 )
 from math import (
 	cos,
 	sin,
 	tan,
-	radians,
+	tau,
 	pi,
 	e,
 	floor,
@@ -46,15 +47,16 @@ COLOR_SCALE = [
 GRID_SIZE: int = 256
 CELL_SIZE: int = 2  # Size of each square in pixels
 MAX_COLOR: int = 255
-LATTITUDE_EFFECT_STRENGTH: int = 50
 HUMIDITY_RANGE: int = (GRID_SIZE >> 5) - 1
-MAX_ALT = 255
-TOP_SEA_LEVEL_FACTOR = 0.51
+OVERWORLD_SURFACE_MAX: int = 255
+OVERWORLD_DEPTH_MAX: int = 255
+MIDWORLD_SURFACE_MAX: int = 255
+OVERWORLD_SEA_LEVEL_FACTOR = 0.51
 SNOW_LEVEL_FACTOR = 0.7
 TERRAIN_NOISE_SCALE: int = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
-AXIS_TILT: float = 23.44
+AXIS_TILT: float = 23.44 * tau/360
 HUMIDITY_SMUDGE_RADIUS: int = 12
 DIAMETER: float = GRID_SIZE/pi
 RADIUS: float = DIAMETER/2
@@ -67,8 +69,15 @@ MAX_COLOR_INTEGER: int = 255**3 - 1
 ADJUSTED_EDGE_AMPLITUDE: int = 32
 MAX_SPEED = 20
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
-BOTTOM_SEA_LEVEL_FACTOR = 0.4
-LAYER_OVERLAP_HEIGHT = 125
+MIDWORLD_SEA_LEVEL_FACTOR = 0.4
+OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR = 0.5
+MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
+
+OVERWORLD_SEA_LEVEL: float = OVERWORLD_SEA_LEVEL_FACTOR * OVERWORLD_SURFACE_MAX
+MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
+OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
+MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_MAX
+SNOW_LEVEL: float = OVERWORLD_SURFACE_MAX * SNOW_LEVEL_FACTOR
 
 itera = 0
 
@@ -177,22 +186,12 @@ def getVector(p1: Point,p2: Point) -> array:
 		((p2[0] - p1[0] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 		((p2[1] - p1[1] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 	])
-def getVectorFromAngle(theta: int) -> array:
-	r = radians(theta)
-	return array([
-		cos(r),
-		sin(r),
-	])
-def unitVector(v: array) -> array:
-	return v / norm(v)
-def scalarProj(a: array,b: array) -> float:
-	return dot(a,unitVector(b))
 def getCurrentTilt(day: int) -> float:
 	min_tilt = -AXIS_TILT
 	max_tilt = AXIS_TILT
 	return min_tilt + day * (max_tilt - min_tilt)/365
 def lattitudeToAngle(latt: int) -> float:
-	return latt * 359/GRID_SIZE
+	return latt * tau/GRID_SIZE
 def randPoint(rng) -> Point:
 	return (
 		rng.randint(0,GRID_SIZE),
@@ -204,12 +203,12 @@ def getCentroid(points: list[Point]) -> Point:
 		round(sum(p[1] for p in points)/len(points)),
 	)
 def getAngleForDay(latt: int,day: int) -> float:
-	return (lattitudeToAngle(latt) + getCurrentTilt(day)) % 360
+	return (lattitudeToAngle(latt) + getCurrentTilt(day)) % tau
 def getVectorForDay(latt: int,day: int) -> tuple[float,float]:
 	theta = getAngleForDay(latt,day)
 	return (
-		RADIUS * cos(radians(theta)),
-		RADIUS * sin(radians(theta)),
+		RADIUS * cos(theta),
+		RADIUS * sin(theta),
 	)
 def getSunlightValue(latt: int,day: int) -> float:
 	x,y = getVectorForDay(latt,day)
@@ -239,74 +238,9 @@ def smudge(trn: Screen) -> Screen:
 			values = [trn[pt] for pt in pts]
 			screen[i,j] = sum(values)/len(values)
 	return screen
-def generateNeighborsAtRange(point: Point,radius: int) -> set[Point]:
-	x,y = point
-	return {
-		((x - radius) % GRID_SIZE,(y + i) % GRID_SIZE) for i in range(-radius,radius + 1)
-	} | {
-		((x + radius) % GRID_SIZE,(y + i) % GRID_SIZE) for i in range(-radius,radius + 1)
-	} | {
-		((x + i) % GRID_SIZE,(y - radius) % GRID_SIZE) for i in range(-radius,radius + 1)
-	} | {
-		((x + i) % GRID_SIZE,(y + radius) % GRID_SIZE) for i in range(-radius,radius + 1)
-	}
-def getClosestBorderPoint(point: Point,plates: Screen) -> Point:
-	points = set()
-	r = 1
-	while len(points) == 0:
-		points |= {p for p in generateNeighborsAtRange(point,r) if plates[point] != plates[p]}
-		r += 1
-	points = list(points)
-	plts = [plates[p] for p in points]
-	if plates[point] in plts:
-		raise ValueError
-	dists = [getDistance(point,p) for p in points]
-	minDist = min(dists)
-	index = dists.index(minDist)
-	if plates[points[index]] == plates[point]:
-		raise ValueError
-	return points[index]
-def getClosestPoint(point: Point,points: list[Point],noise_diff: int|None = None) -> Point:
-	if noise_diff is None:
-		dists = [getDistance(point,p) for p in points]
-	else:
-		dists = [getDistance(point,p) + noise_diff for p in points]
-	minDist = min(dists)
-	minDistIndex = [i for i,dist in enumerate(dists) if dist == minDist][0]
-	return points[minDistIndex]
-def getNeighborsOfPoint(point: Point,values: Screen) -> list:
-	vals = set()
-	x,y = point
-	points = {
-		(x - 1,y - 1),
-		(x - 1,y),
-		(x - 1,y + 1),
-		(x,y - 1),
-		(x,y),
-		(x,y + 1),
-		(x + 1,y - 1),
-		(x + 1,y),
-		(x + 1,y + 1),
-	}
-	points = {(x,y) for x,y in points if x >= 0 and y >= 0 and x < GRID_SIZE and y < GRID_SIZE}
-	for point in points:
-		vals.add(values[point])
-	return list(vals)
-def getTopLand(*,altitude: Screen|None = None) -> Screen:
-	print('generating top land...')
-	return scrMap(
-		lambda v : v > MAX_ALT * TOP_SEA_LEVEL_FACTOR,
-		altitude
-	)
-def getBottomLand(*,altitude: Screen|None = None) -> Screen:
-	print('generating top land...')
-	return scrMap(
-		lambda v : v > MAX_ALT * BOTTOM_SEA_LEVEL_FACTOR,
-		altitude,
-	)
 def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Screen:
 	print('generating humidity...')
-	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(TOP_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
+	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(OVERWORLD_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -347,29 +281,6 @@ def getSunlight() -> Screen:
 		lambda x,y,v : values[y],
 		Screen(GRID_SIZE),
 	)
-def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	print('generating snow...')
-	filename = Path(f"snow_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(AXIS_TILT)}_{flm(SNOW_LEVEL_FACTOR)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	if sunlight is None:
-		sunlight = getSunlight()
-	snow = scrMap(
-		lambda u,v : ((MAX_ALT - u) + v)/2 > MAX_ALT * SNOW_LEVEL_FACTOR,
-		sunlight,
-		altitude,
-	)
-	values = [[snow[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return snow
 def getTopGreenery(
 	*,
 	altitude: Screen|None = None,
@@ -421,204 +332,23 @@ def getBottomGreenery(
 		altitude,
 		land,
 	)
-def getNeighbors(*,plates: Screen|None = None) -> Screen[list[Point]]:
-	print('generating neighbors...')
-	filename = Path(f"neighbors_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : [tuple(v) for v in values[x][y]],
-			Screen(GRID_SIZE),
-		)
-	if plates is None:
-		plates = getPlates()
-	neighbors = keyMap(
-		lambda x,y,v : getNeighborsOfPoint((x,y),v),
-		plates,
-	)
-	values = [[neighbors[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return neighbors
-def getEdges(*,neighbors: Screen|None = None,plates: Screen|None = None) -> Screen:
-	print('generating edges...')
-	filename = Path(f"edges_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	if neighbors is None:
-		neighbors = getPlates(plates = plates)
-	edges = scrMap(
-		lambda v : len(v) == 2,
-		neighbors,
-	)
-	values = [[edges[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return edges
-def getPlates() -> Screen:
-	print('generating plates...')
-	filename = Path(f"plates_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : tuple(values[x][y]),
-			Screen(GRID_SIZE),
-		)
-	points = set()
-	rng = random.Random(NOISE_SEED)
-	while len(points) < NUM_CONTINENTS:
-		points.add(randPoint(rng))
-	points = list(points)
-	plates = keyMap(
-		lambda x,y,v : getClosestPoint((x,y),points),
-		Screen(GRID_SIZE)
-	)
-	for i in range(NUM_CONTINENT_RUNS):
-		for j in range(NUM_CONTINENTS):
-			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
-			points[j] = getCentroid(coords)
-		plates = keyMap(
-			lambda x,y,v : getClosestPoint((x,y),points),
-			Screen(GRID_SIZE)
-		)
-	values = [[plates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return plates
-def getClosestPointAtBorder(*,plates: Screen|None = None) -> Screen[Point]:
-	print('generating closest point at border...')
-	filename = Path(f"closestPointAtBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : tuple(values[x][y]),
-			Screen(GRID_SIZE),
-		)
-	if plates is None:
-		plates = getPlates()
-	closestPointAtBorder = Screen(GRID_SIZE)
+def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
+	print('generating connected edges...')
+	points = {
+		(-1,-1),
+		(-1,0),
+		(-1,1),
+		(0,-1),
+		(0,1),
+		(1,-1),
+		(1,0),
+		(1,1),
+	}
+	result = Screen(GRID_SIZE)
 	for i in range(GRID_SIZE):
 		for j in range(GRID_SIZE):
-			closestPointAtBorder[i,j] = getClosestBorderPoint((i,j),plates)
-	values = [[closestPointAtBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return closestPointAtBorder
-def getClosestBorder(*,plates: Screen|None = None,closestPointAtBorder: Screen|None = None) -> Screen[Point]:
-	print('generating closest border...')
-	filename = Path(f"closestBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : tuple(values[x][y]),
-			Screen(GRID_SIZE),
-		)
-	if plates is None:
-		plates = getPlates2()
-	if closestPointAtBorder is None:
-		closestPointAtBorder = getClosestPointAtBorder()
-	closestBorder = scrMap(
-		lambda v : plates[v],
-		closestPointAtBorder,
-	)
-	for i in range(GRID_SIZE):
-		for j in range(GRID_SIZE):
-			if plates[i,j] == plates[closestPointAtBorder[i,j]]:
-				raise ValueError
-	values = [[closestBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return closestBorder
-def getDistToBorder(*,closestPointAtBorder: Screen|None = None,plates: Screen|None = None) -> Screen[int]:
-	print('generating distance to border...')
-	filename = Path(f"distToBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	if closestPointAtBorder is None:
-		closestPointAtBorder = getClosestPointAtBorder(plates = plates)
-	distToBorder = keyMap(
-		lambda x,y,v : getDistance((x,y),v[x,y]),
-		closestPointAtBorder,
-	)
-	values = [[distToBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return distToBorder
-def getPlates2(*,pnoise: Screen|None = None) -> Screen[Point]:
-	print('generating plates2...')
-	filename = Path(f"plates2_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : tuple(values[x][y]),
-			Screen(GRID_SIZE),
-		)
-	if pnoise is None:
-		pnoise = perlinNoise(
-			seed = NOISE_SEED,
-			scale = TERRAIN_NOISE_SCALE,
-			octaves = TERRAIN_NOISE_OCTAVES,
-		)
-	perlin = (pnoise + 1) * ADJUSTED_EDGE_AMPLITUDE/2
-	points = set()
-	rng = random.Random(NOISE_SEED)
-	while len(points) < NUM_CONTINENTS:
-		points.add(randPoint(rng))
-	points = list(points)
-	plates = keyMap(
-		lambda x,y,v : getClosestPoint((x + perlin[x,y],y + perlin[x,y]),points),
-		Screen(GRID_SIZE)
-	)
-	for i in range(NUM_CONTINENT_RUNS):
-		for j in range(NUM_CONTINENTS):
-			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
-			points[j] = getCentroid(coords)
-		plates = keyMap(
-			lambda x,y,v : getClosestPoint((x + perlin[x,y],y + perlin[x,y]),points),
-			Screen(GRID_SIZE)
-		)
-	swaps = {p : None for p in points}
-	for i in range(NUM_CONTINENT_RUNS):
-		for j in range(NUM_CONTINENTS):
-			coords = [(x,y) for (x,y),_ in plates.enumerate() if plates[x,y] == points[j]]
-			swaps[points[j]] = getCentroid(coords)
-	plates = scrMap(
-		lambda v : swaps[v],
-		plates,
-	)
-	values = [[plates[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-	return plates
+			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
+	return result
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -637,37 +367,6 @@ def addColor(trn: dict[str,Screen]) -> None:
 				lambda v : pointToColor(v),
 				trn[k],
 			)
-def getConjunctions(*,plates: Screen,neighbors: Screen|None = None) -> set[frozenset[Point]]:
-	if neighbors is None:
-		neighbors = getEdges(plates = plates)
-	return {frozenset(v) for v in neighbors if len(v) > 1}
-def getAltitude(seed: int) -> Screen[int]:
-	print('generating altitude...')
-	return scrMap(
-		lambda v : int(v),
-		(perlinNoise(
-			seed = seed,
-			scale = TERRAIN_NOISE_SCALE,
-			octaves = TERRAIN_NOISE_OCTAVES,
-		) + 1) * MAX_ALT/2
-	)
-def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
-	print('generating connected edges...')
-	points = {
-		(-1,-1),
-		(-1,0),
-		(-1,1),
-		(0,-1),
-		(0,1),
-		(1,-1),
-		(1,0),
-		(1,1),
-	}
-	result = Screen(GRID_SIZE)
-	for i in range(GRID_SIZE):
-		for j in range(GRID_SIZE):
-			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
-	return result
 
 TERRAIN: dict[str,Screen] = {}
 
@@ -689,7 +388,7 @@ def drawMap() -> None:
 	pygame.display.set_caption("Window")
 	ui_panel = pygame.Rect(width,0,UI_PANEL_WIDTH,height)
 	pygame.draw.rect(window,UI_RECT_COLOR,ui_panel)
-	text_surface = font.render(str(TOP_SEA_LEVEL_FACTOR),True,(0,0,0))
+	text_surface = font.render(str(OVERWORLD_SEA_LEVEL_FACTOR),True,(0,0,0))
 	text_rect = text_surface.get_rect(center=(width + UI_PANEL_WIDTH//2,UI_PANEL_MARGIN))
 	window.blit(text_surface, text_rect)
 
@@ -712,57 +411,101 @@ def drawMap() -> None:
 
 # totalConvergence = float[-MAX_SPEED,MAX_SPEED] * int[>0]
 
-TERRAIN['altitude 1'] = getAltitude(NOISE_SEED)
-TERRAIN['bottom 1'] = getAltitude(NOISE_SEED + 1)
-TERRAIN['altitude 2'] = getAltitude(NOISE_SEED + 2)
-TERRAIN['land 1'] = getTopLand(altitude = TERRAIN['altitude 1'])
-TERRAIN['land 2'] = getBottomLand(altitude = TERRAIN['altitude 2'])
-TERRAIN['altitude bottom'] = 2*LAYER_OVERLAP_HEIGHT - TERRAIN['bottom 1']
-TERRAIN['true altitude 1'] = 2*LAYER_OVERLAP_HEIGHT + TERRAIN['altitude 1']
-TERRAIN['thickness 1'] = TERRAIN['true altitude 1'] - TERRAIN['altitude bottom']
-TERRAIN['connected'] = scrMap(
-	lambda u,v : u >= v,
-	TERRAIN['altitude 2'],
-	TERRAIN['altitude bottom'],
+TERRAIN['overworld surface']: Screen[float] = (
+	perlinNoise(
+		seed = NOISE_SEED,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	) + 1
+) * OVERWORLD_SURFACE_MAX/2
+TERRAIN['overworld depth']: Screen[float] = (
+	perlinNoise(
+		seed = NOISE_SEED + 1,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	) + 1
+) * OVERWORLD_DEPTH_MAX/2
+TERRAIN['midworld surface']: Screen[float] = (
+	perlinNoise(
+		seed = NOISE_SEED + 2,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	) + 1
+) * MIDWORLD_SURFACE_MAX/2
+TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
+TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
+TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
+TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] - TERRAIN['overworld depth']
+TERRAIN['overworld-midworld connections']: Screen[bool] = TERRAIN['midworld surface'] >= (
+	OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 )
-TERRAIN['under height'] = scrMap(
-	lambda w,u,v : 0 if w else u - v,
-	TERRAIN['connected'],
-	TERRAIN['altitude bottom'],
-	TERRAIN['altitude 2'],
+TERRAIN['midworld open space'] = ifMap(
+	0,
+	TERRAIN['overworld-midworld connections'],
+	TERRAIN['overworld depth altitude'] - TERRAIN['midworld surface'],
 )
 TERRAIN['sunlight'] = getSunlight()
-TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude 1'])
-TERRAIN['greenery 1'] = getTopGreenery(
-	altitude = TERRAIN['altitude 1'],
-	land = TERRAIN['land 1'],
+TERRAIN['snow'] = ((OVERWORLD_SURFACE_MAX - TERRAIN['sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
+TERRAIN['overworld greenery'] = getTopGreenery(
+	altitude = TERRAIN['overworld surface'],
+	land = TERRAIN['overworld land'],
 	snow = TERRAIN['snow'],
 	sunlight = TERRAIN['sunlight'],
 )
-TERRAIN['greenery 2'] = getBottomGreenery(
-	altitude = TERRAIN['altitude 2'],
-	land = TERRAIN['land 2'],
-	connected = TERRAIN['connected'],
+TERRAIN['midworld greenery'] = getBottomGreenery(
+	altitude = TERRAIN['midworld surface'],
+	land = TERRAIN['midworld land'],
+	connected = TERRAIN['overworld-midworld connections'],
 )
-TERRAIN['connected edges'] = getConnectedEdges(
-	connected = TERRAIN['connected'],
+TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
+	connected = TERRAIN['overworld-midworld connections'],
 )
-TERRAIN['underwater lakes'] = scrMap(
-	lambda w,u,v : v if w and not u else 0,
-	TERRAIN['land 1'],
-	TERRAIN['connected'],
-	TERRAIN['thickness 1'],
-)
+TERRAIN['midworld surface flow vector x'] = Screen(GRID_SIZE)
+TERRAIN['midworld surface flow vector y'] = Screen(GRID_SIZE)
+TERRAIN['midworld surface flow divergence'] = Screen(GRID_SIZE)
+for x in range(GRID_SIZE):
+	for y in range(GRID_SIZE):
+		if not TERRAIN['overworld-midworld connections'][x,y]:
+			tl = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
+			tc = TERRAIN['midworld surface'][x,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][x,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
+			tr = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,(y-1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,(y-1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
 
-TERRAIN['underwater lakes'] //= 2
+			ml = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,y] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,y] else MIDWORLD_SURFACE_MAX
+			mc = TERRAIN['midworld surface'][x,y]
+			mr = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,y] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,y] else MIDWORLD_SURFACE_MAX
 
-print(max({v for v in TERRAIN['under height']}))
+			bl = TERRAIN['midworld surface'][(x-1) % GRID_SIZE,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x-1) % GRID_SIZE,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
+			bc = TERRAIN['midworld surface'][x,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][x,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
+			br = TERRAIN['midworld surface'][(x+1) % GRID_SIZE,(y+1) % GRID_SIZE] if not TERRAIN['overworld-midworld connections'][(x+1) % GRID_SIZE,(y+1) % GRID_SIZE] else MIDWORLD_SURFACE_MAX
+
+			TERRAIN['midworld surface flow vector x'][x,y] = ((tr + 2*mr + br) - (tl + 2*ml + bl)) / 8
+			TERRAIN['midworld surface flow vector y'][x,y] = ((bl + 2*bc + br) - (tl + 2*tc + tr)) / 8
+		else:
+			TERRAIN['midworld surface flow vector x'][x,y] = 0
+			TERRAIN['midworld surface flow vector y'][x,y] = 0
+for x in range(GRID_SIZE):
+	for y in range(GRID_SIZE):
+		if not TERRAIN['overworld-midworld connections'][x,y]:
+			TERRAIN['midworld surface flow divergence'][x,y] = (
+				TERRAIN['midworld surface flow vector x'][(x + 1) % GRID_SIZE,y] - TERRAIN['midworld surface flow vector x'][(x - 1) % GRID_SIZE,y]
+			) / 2 + (
+				TERRAIN['midworld surface flow vector y'][x,(y + 1) % GRID_SIZE] - TERRAIN['midworld surface flow vector y'][x,(y - 1) % GRID_SIZE]
+			) / 2
+		else:
+			TERRAIN['midworld surface flow divergence'][x,y] = None
+vals = {v for v in TERRAIN['midworld surface flow divergence'] if v is not None}
+minval = min(vals)
+maxval = max(vals)
+TERRAIN['midworld surface flow divergence'] = scrMap(
+	lambda v : COLOR_SCALE[int((v + minval) * len(COLOR_SCALE)/(maxval - minval))] if v is not None else (0,0,0),
+	TERRAIN['midworld surface flow divergence'],
+)
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'greenery 1'
-SCREEN_LAYOUT[1,0] = 'greenery 2'
-SCREEN_LAYOUT[2,0] = 'underwater lakes (colored)'
+SCREEN_LAYOUT[0,0] = 'overworld greenery'
+SCREEN_LAYOUT[1,0] = 'midworld greenery'
+SCREEN_LAYOUT[2,0] = 'midworld surface flow divergence'
 
 mapLayout(TERRAIN)
 drawMap()
