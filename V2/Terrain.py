@@ -16,7 +16,10 @@ from math import (
 	ceil,
 )
 from pathlib import Path
-from numpy import array
+from numpy import (
+	array,
+	dot,
+)
 from numpy.linalg import norm
 from itertools import product
 
@@ -25,16 +28,30 @@ FINAL_SCREEN_LAYOUT = []
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
+
+COLOR_SCALE = [
+	(255,i,0) for i in range(0,255)
+] + [
+	(255 - i,255,0) for i in range(0,255)
+] + [
+	(0,255,i) for i in range(0,255)
+] + [
+	(0,255 - i,255) for i in range(0,255)
+] + [
+	(i,0,255) for i in range(0,255)
+] + [
+	(255,0,255 - i) for i in range(0,255)
+]
+
 GRID_SIZE: int = 256
 CELL_SIZE: int = 2  # Size of each square in pixels
 MAX_ANGLE: int = 359
 MAX_COLOR: int = 255
-LATTITUDE_EFFECT_DISTANCE: int = 1000
 LATTITUDE_EFFECT_STRENGTH: int = 50
-MAX_THICKNESS: int = 255
 HUMIDITY_RANGE: int = (GRID_SIZE >> 5) - 1
-SEA_LEVEL: int = 130
-SNOW_LEVEL: int = 160
+MAX_ALT = 255
+TOP_SEA_LEVEL_FACTOR = 0.51
+SNOW_LEVEL_FACTOR = 0.7
 TERRAIN_NOISE_SCALE: int = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
@@ -51,12 +68,12 @@ MAX_COLOR_INTEGER: int = 255**3 - 1
 ADJUSTED_EDGE_AMPLITUDE: int = 32
 MAX_SPEED = 20
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
-
-# ax + by = 0
-# ax = -by
-# -a/b = y/x
+BOTTOM_SEA_LEVEL_FACTOR = 0.4
+LAYER_OVERLAP_HEIGHT = 125
 
 itera = 0
+
+float_n1_1 = float
 
 def prt(v):
 	global itera
@@ -71,7 +88,11 @@ def dn():
 	global itera
 
 	itera -= 1
-def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
+def flm(value) -> str:
+	if isinstance(value,float):
+		return str(value).replace('.','-')
+	return str(value)
+def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[float]:
 	print('generating perlin noise...')
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
@@ -79,7 +100,7 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen:
 	Returns:
 	    list[list[float]]: values approximately [-1, 1]
 	"""
-	filename = Path(f"pnoise_{GRID_SIZE}_{seed}_{scale}_{octaves}.json")
+	filename = Path(f"pnoise_{flm(GRID_SIZE)}_{flm(seed)}_{flm(scale)}_{flm(octaves)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -171,9 +192,9 @@ def getVectorFromAngle(theta: int) -> array:
 def unitVector(v: array) -> array:
 	return v / norm(v)
 def scalarProj(a: array,b: array) -> float:
-	return a * unitVector(b)
+	return dot(a,unitVector(b))
 def vectorProj(a: array,b: array) -> array:
-	return ((a * b)/norm(b)**2) * b
+	return (dot(a,b)/norm(b)**2) * b
 def getAverageDistance(point: Point,trn: Screen) -> float:
 	distances = []
 
@@ -182,16 +203,10 @@ def getAverageDistance(point: Point,trn: Screen) -> float:
 			x = (point[0] + i) % GRID_SIZE
 			y = (point[1] + j) % GRID_SIZE
 			if not trn[x,y]:
-				a = getDistance(point,(x,y))
-				if a == 256:
-					print((point,(x,y)))
-				distances.append(a)
+				distances.append(getDistance(point,(x,y)))
 			else:
 				distances.append(GRID_SIZE - 1)
-	x = sum(distances)/len(distances)
-	if x == 256:
-		print(x)
-	return x
+	return sum(distances)/len(distances)
 def getCurrentTilt(day: int) -> float:
 	min_tilt = -AXIS_TILT
 	max_tilt = AXIS_TILT
@@ -311,51 +326,21 @@ def getClosestBorderAndDist(point: Point,plates: Screen) -> tuple[Point,float]:
 	minDist = min(dists)
 	index = dists.index(minDist)
 	return (plates[points[index]],minDist)
-def getAltitude() -> Screen:
-	filename = Path(f"altitude_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	pnoise = perlinNoise(
-		seed = random.randint(0,255),
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	)
-	values = [[(pnoise[x,y] + 1) * 255/2 for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
+def getTopLand(*,altitude: Screen|None = None) -> Screen:
+	print('generating top land...')
 	return scrMap(
-		lambda v : (v + 1) * 255/2,
-		pnoise,
+		lambda v : v > MAX_ALT * TOP_SEA_LEVEL_FACTOR,
+		altitude
 	)
-def getLand(*,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"land_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{SEA_LEVEL}.json")
-	if filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = f.read()
-		values = json.loads(content)
-		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
-		)
-	if altitude is None:
-		altitude = getAltitude()
-	values = [[altitude[x,y] > SEA_LEVEL for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
-	content = json.dumps(values)
-	with open(filename,mode = 'w') as f:
-		f.write(content)
+def getBottomLand(*,altitude: Screen|None = None) -> Screen:
+	print('generating top land...')
 	return scrMap(
-		lambda v : v > SEA_LEVEL,
+		lambda v : v > MAX_ALT * BOTTOM_SEA_LEVEL_FACTOR,
 		altitude,
 	)
 def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"humidity_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{SEA_LEVEL}_{HUMIDITY_SMUDGE_RADIUS}.json")
+	print('generating humidity...')
+	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(TOP_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -378,7 +363,8 @@ def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Scre
 		f.write(content)
 	return humidity
 def getSunlight() -> Screen:
-	filename = Path(f"sunlight_{GRID_SIZE}_{str(AXIS_TILT).replace('.','_')}.json")
+	print('generating sunlight...')
+	filename = Path(f"sunlight_{flm(GRID_SIZE)}_{flm(AXIS_TILT)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -396,7 +382,8 @@ def getSunlight() -> Screen:
 		Screen(GRID_SIZE),
 	)
 def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Screen:
-	filename = Path(f"snow_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{str(AXIS_TILT).replace('.','-')}.json")
+	print('generating snow...')
+	filename = Path(f"snow_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(AXIS_TILT)}_{flm(SNOW_LEVEL_FACTOR)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -407,10 +394,8 @@ def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Scre
 		)
 	if sunlight is None:
 		sunlight = getSunlight()
-	if altitude is None:
-		altitude = getAltitude()
 	snow = scrMap(
-		lambda u,v : (255 - u)/7 + v > SNOW_LEVEL,
+		lambda u,v : ((MAX_ALT - u) + v)/2 > MAX_ALT * SNOW_LEVEL_FACTOR,
 		sunlight,
 		altitude,
 	)
@@ -419,15 +404,14 @@ def getSnow(*,sunlight: Screen|None = None,altitude: Screen|None = None) -> Scre
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return snow
-def getGreenery(
+def getTopGreenery(
 	*,
 	altitude: Screen|None = None,
 	land: Screen|None = None,
 	snow : Screen|None = None,
 	sunlight: Screen|None = None,
 ) -> Screen:
-	if altitude is None:
-		altitude = getAltitude()
+	print('generating top greenery...')
 	if land is None:
 		land = getLand(altitude = altitude)
 	if snow is None:
@@ -448,9 +432,32 @@ def getGreenery(
 		altitude,
 		land,
 	)
-def getNeighbors(*,plates: Screen|None = None) -> Screen:
+def getBottomGreenery(
+	*,
+	altitude: Screen[int]|None = None,
+	land: Screen[bool]|None = None,
+	connected: Screen[bool]|None = None,
+) -> Screen:
+	print('generating bottom greenery...')
+	if land is None:
+		land = getLand(altitude = altitude)
+	return scrMap(
+		lambda w,u,v : (0,0,0) if w else (
+			int(u) // 2,
+			int(u) + (255 - int(u)) // 3,
+			int(u) // 2,
+		) if v else (
+			int(u) // 2,
+			int(u) // 2,
+			(255 + int(u)) // 2,
+		),
+		connected,
+		altitude,
+		land,
+	)
+def getNeighbors(*,plates: Screen|None = None) -> Screen[list[Point]]:
 	print('generating neighbors...')
-	filename = Path(f"neighbors_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"neighbors_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -472,7 +479,7 @@ def getNeighbors(*,plates: Screen|None = None) -> Screen:
 	return neighbors
 def getEdges(*,neighbors: Screen|None = None,plates: Screen|None = None) -> Screen:
 	print('generating edges...')
-	filename = Path(f"edges_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"edges_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -494,7 +501,7 @@ def getEdges(*,neighbors: Screen|None = None,plates: Screen|None = None) -> Scre
 	return edges
 def getPlates() -> Screen:
 	print('generating plates...')
-	filename = Path(f"plates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"plates_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -525,9 +532,9 @@ def getPlates() -> Screen:
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return plates
-def getClosestPointAtBorder(*,plates: Screen|None = None) -> tuple[Screen,Screen]:
+def getClosestPointAtBorder(*,plates: Screen|None = None) -> Screen[Point]:
 	print('generating closest point at border...')
-	filename = Path(f"closestPointAtBorder_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"closestPointAtBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -538,24 +545,24 @@ def getClosestPointAtBorder(*,plates: Screen|None = None) -> tuple[Screen,Screen
 		)
 	if plates is None:
 		plates = getPlates()
-	closestPointAtBorder = keyMap(
-		lambda x,y,v : getClosestBorderPoint((x,y),v),
-		plates,
-	)
+	closestPointAtBorder = Screen(GRID_SIZE)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			closestPointAtBorder[i,j] = getClosestBorderPoint((i,j),plates)
 	values = [[closestPointAtBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return closestPointAtBorder
-def getClosestBorder(*,plates: Screen|None = None,closestPointAtBorder: Screen|None = None) -> tuple[Screen,Screen]:
+def getClosestBorder(*,plates: Screen|None = None,closestPointAtBorder: Screen|None = None) -> Screen[Point]:
 	print('generating closest border...')
-	filename = Path(f"closestBorder_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"closestBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
 		values = json.loads(content)
 		return keyMap(
-			lambda x,y,v : values[x][y],
+			lambda x,y,v : tuple(values[x][y]),
 			Screen(GRID_SIZE),
 		)
 	if plates is None:
@@ -566,14 +573,18 @@ def getClosestBorder(*,plates: Screen|None = None,closestPointAtBorder: Screen|N
 		lambda v : plates[v],
 		closestPointAtBorder,
 	)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			if plates[i,j] == plates[closestPointAtBorder[i,j]]:
+				raise ValueError
 	values = [[closestBorder[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return closestBorder
-def getDistToBorder(*,closestPointAtBorder: Screen|None = None,plates: Screen|None = None) -> tuple[Screen,Screen]:
+def getDistToBorder(*,closestPointAtBorder: Screen|None = None,plates: Screen|None = None) -> Screen[int]:
 	print('generating distance to border...')
-	filename = Path(f"distToBorder_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}.json")
+	filename = Path(f"distToBorder_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -595,7 +606,7 @@ def getDistToBorder(*,closestPointAtBorder: Screen|None = None,plates: Screen|No
 	return distToBorder
 def getAdjustedPlates(*,plates: Screen|None = None,pnoise: Screen|None = None,neighbors: Screen|None = None,closestBorder: Screen|None = None,distToBorder: Screen|None = None) -> Screen:
 	print('generating adjusted tectonic plates...')
-	filename = Path(f"adjustedPlates_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{str(TERRAIN_NOISE_OCTAVES).replace('.','-')}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+	filename = Path(f"adjustedPlates_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -635,9 +646,9 @@ def getAdjustedPlates(*,plates: Screen|None = None,pnoise: Screen|None = None,ne
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return adjustedPlates
-def getPlates2(*,pnoise: Screen|None = None) -> Screen:
+def getPlates2(*,pnoise: Screen|None = None) -> Screen[Point]:
 	print('generating plates2...')
-	filename = Path(f"plates2_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+	filename = Path(f"plates2_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -702,8 +713,8 @@ def addColor(trn: dict[str,Screen]) -> None:
 				lambda v : pointToColor(v),
 				trn[k],
 			)
-def getDirections(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen:
-	filename = Path(f"directions_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}.json")
+def getDirections(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen[int]:
+	filename = Path(f"directions_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -725,8 +736,8 @@ def getDirections(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Sc
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return directions
-def getSpeeds(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen:
-	filename = Path(f"speeds_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}_{MAX_SPEED}.json")
+def getSpeeds(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen[int]:
+	filename = Path(f"speeds_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}_{flm(MAX_SPEED)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -748,11 +759,11 @@ def getSpeeds(*,plates: Screen|None = None,pnoise: Screen|None = None) -> Screen
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return speeds
-def getConjunctions(*,plates: Screen,neighbors: Screen|None = None) -> set[frozenset]:
+def getConjunctions(*,plates: Screen,neighbors: Screen|None = None) -> set[frozenset[Point]]:
 	if neighbors is None:
 		neighbors = getEdges(plates = plates)
 	return {frozenset(v) for v in neighbors if len(v) > 1}
-def getPairs(plates: Screen,neighbors: Screen|None = None) -> set[frozenset]:
+def getPairs(plates: Screen,neighbors: Screen|None = None) -> set[frozenset[Point]]:
 	conjunctions = getConjunctions(plates = plates,neighbors = neighbors)
 	pairs = set()
 	for v in conjunctions:
@@ -774,8 +785,8 @@ def getConvergence(pairs,directions: Screen,speeds: Screen) -> dict[frozenset[Po
 			c2 : scalarProj(d2,-v12),
 		}
 	return vals
-def getTotalConvergence(*,convergence: Screen,edgeSection: Screen,distToBorder: Screen,noise: Screen) -> Screen:
-	filename = Path(f"totalConvergence_{NOISE_SEED}_{NUM_CONTINENTS}_{GRID_SIZE}_{NUM_CONTINENT_RUNS}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{ADJUSTED_EDGE_AMPLITUDE}_{MAX_SPEED}.json")
+def getTotalConvergence(*,convergence: dict[frozenset[Point],dict[Point,float]],edgeSection: Screen[frozenset[Point]],distToBorder: Screen[float],noise: Screen[float],plates: Screen[Point]) -> Screen:
+	filename = Path(f"totalConvergence_{flm(NOISE_SEED)}_{flm(NUM_CONTINENTS)}_{flm(GRID_SIZE)}_{flm(NUM_CONTINENT_RUNS)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(ADJUSTED_EDGE_AMPLITUDE)}_{flm(MAX_SPEED)}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -784,18 +795,53 @@ def getTotalConvergence(*,convergence: Screen,edgeSection: Screen,distToBorder: 
 			lambda x,y,v : values[x][y],
 			Screen(GRID_SIZE),
 		)
-	distToCenter = GRID_SIZE - distToBorder
+	distToCenter = GRID_SIZE//2 - distToBorder
 	totalConvergence = scrMap(
-		lambda a,b,c : a * convergence[b] * c,
+		lambda a,b,c,d : a * convergence[b][d] * c,
 		noise,
 		edgeSection,
 		distToCenter,
+		plates,
 	)
 	values = [[totalConvergence[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return totalConvergence
+def getAltitude(seed: int) -> Screen[int]:
+	print('generating altitude...')
+	return scrMap(
+		lambda v : int(v),
+		(perlinNoise(
+			seed = seed,
+			scale = TERRAIN_NOISE_SCALE,
+			octaves = TERRAIN_NOISE_OCTAVES,
+		) + 1) * MAX_ALT/2
+	)
+def getLayersConnected(*,depth: Screen[int],altitude: Screen[int]) -> Screen[bool]:
+	print('generating layers connected...')
+	return scrMap(
+		lambda u,v : u > LAYER_OVERLAP_HEIGHT and v > LAYER_OVERLAP_HEIGHT,
+		depth,
+		altitude,
+	)
+def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
+	print('generating connected edges...')
+	points = {
+		(-1,-1),
+		(-1,0),
+		(-1,1),
+		(0,-1),
+		(0,1),
+		(1,-1),
+		(1,0),
+		(1,1),
+	}
+	result = Screen(GRID_SIZE)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
+	return result
 
 TERRAIN: dict[str,Screen] = {}
 
@@ -817,7 +863,7 @@ def drawMap() -> None:
 	pygame.display.set_caption("Window")
 	ui_panel = pygame.Rect(width,0,UI_PANEL_WIDTH,height)
 	pygame.draw.rect(window,UI_RECT_COLOR,ui_panel)
-	text_surface = font.render(str(SEA_LEVEL),True,(0,0,0))
+	text_surface = font.render(str(TOP_SEA_LEVEL_FACTOR),True,(0,0,0))
 	text_rect = text_surface.get_rect(center=(width + UI_PANEL_WIDTH//2,UI_PANEL_MARGIN))
 	window.blit(text_surface, text_rect)
 
@@ -838,57 +884,59 @@ def drawMap() -> None:
 				raise
 	pygame.display.flip()
 
-# y = 10e^(-(x - 127)^2)
+# totalConvergence = float[-MAX_SPEED,MAX_SPEED] * int[>0]
 
-#TERRAIN['altitude'] = getAltitude()
-#TERRAIN['land'] = getLand(altitude = TERRAIN['altitude'])
-#TERRAIN['humidity'] = getHumidity(land = TERRAIN['land'])
-#TERRAIN['sunlight'] = getSunlight()
-#TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude'])
-#TERRAIN['tectonic plates'] = getPlates()
-TERRAIN['perlin noise'] = perlinNoise(
-	seed = NOISE_SEED,
-	scale = TERRAIN_NOISE_SCALE,
-	octaves = TERRAIN_NOISE_OCTAVES,
+TERRAIN['altitude 1'] = getAltitude(NOISE_SEED)
+TERRAIN['bottom 1'] = getAltitude(NOISE_SEED + 1)
+TERRAIN['altitude 2'] = getAltitude(NOISE_SEED + 2)
+TERRAIN['land 1'] = getTopLand(altitude = TERRAIN['altitude 1'])
+TERRAIN['land 2'] = getBottomLand(altitude = TERRAIN['altitude 2'])
+TERRAIN['altitude bottom'] = 2*LAYER_OVERLAP_HEIGHT - TERRAIN['bottom 1']
+TERRAIN['true altitude 1'] = 2*LAYER_OVERLAP_HEIGHT + TERRAIN['altitude 1']
+TERRAIN['thickness 1'] = TERRAIN['true altitude 1'] - TERRAIN['altitude bottom']
+TERRAIN['connected'] = scrMap(
+	lambda u,v : u >= v,
+	TERRAIN['altitude 2'],
+	TERRAIN['altitude bottom'],
 )
-TERRAIN['plates'] = getPlates2(pnoise = TERRAIN['perlin noise'])
-TERRAIN['closest border point'] = getClosestPointAtBorder(plates = TERRAIN['perlin noise'])
-TERRAIN['closest border'] = getClosestBorder(plates = TERRAIN['plates'],closestPointAtBorder = TERRAIN['closest border point'])
-TERRAIN['distance to border'] = getDistToBorder(closestPointAtBorder = TERRAIN['closest border point'],plates = TERRAIN['plates'])
-TERRAIN['directions'] = getDirections(plates = TERRAIN['plates'])
-TERRAIN['neighbors'] = getNeighbors(plates = TERRAIN['plates'])
-TERRAIN['ridged noise'] = abs(TERRAIN['perlin noise'])
-for i in range(GRID_SIZE):
-	for j in range(GRID_SIZE):
-		if TERRAIN['plates'][i,j] == TERRAIN['closest border'][i,j]:
-			raise TypeError
-TERRAIN['edge section'] = scrMap(
-	lambda u,v : frozenset([u,v]),
-	TERRAIN['plates'],
-	TERRAIN['closest border'],
+TERRAIN['under height'] = scrMap(
+	lambda w,u,v : 0 if w else u - v,
+	TERRAIN['connected'],
+	TERRAIN['altitude bottom'],
+	TERRAIN['altitude 2'],
 )
-TERRAIN['speeds'] = getSpeeds(plates = TERRAIN['plates'])
-pairs = getPairs(TERRAIN['plates'],TERRAIN['neighbors'])
-convergence = getConvergence(pairs,TERRAIN['directions'],TERRAIN['speeds'])
-print([v for v in TERRAIN['closest border point']][0])
-TERRAIN['total convergence'] = getTotalConvergence(
-	convergence = convergence,
-	edgeSection = TERRAIN['edge section'],
-	distToBorder = TERRAIN['distance to border'],
-	noise = TERRAIN['ridged noise'],
+TERRAIN['sunlight'] = getSunlight()
+TERRAIN['snow'] = getSnow(sunlight = TERRAIN['sunlight'],altitude = TERRAIN['altitude 1'])
+TERRAIN['greenery 1'] = getTopGreenery(
+	altitude = TERRAIN['altitude 1'],
+	land = TERRAIN['land 1'],
+	snow = TERRAIN['snow'],
+	sunlight = TERRAIN['sunlight'],
 )
-vals = {v for v in TERRAIN['total convergence']}
-max_convergence = max(vals)
-min_convergence = max(vals)
-TERRAIN['total convergence'] = (TERRAIN['total convergence'] + min_convergence) * 255/(max_convergence * min_convergence)
-TERRAIN['total convergence'] = scrMap(
-	lambda v : int(v),
-	TERRAIN['total convergence'],
+TERRAIN['greenery 2'] = getBottomGreenery(
+	altitude = TERRAIN['altitude 2'],
+	land = TERRAIN['land 2'],
+	connected = TERRAIN['connected'],
 )
+TERRAIN['connected edges'] = getConnectedEdges(
+	connected = TERRAIN['connected'],
+)
+TERRAIN['underwater lakes'] = scrMap(
+	lambda w,u,v : v if w and not u else 0,
+	TERRAIN['land 1'],
+	TERRAIN['connected'],
+	TERRAIN['thickness 1'],
+)
+
+TERRAIN['underwater lakes'] //= 2
+
+print(max({v for v in TERRAIN['under height']}))
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'total convergence (colored)'
+SCREEN_LAYOUT[0,0] = 'greenery 1'
+SCREEN_LAYOUT[1,0] = 'greenery 2'
+SCREEN_LAYOUT[2,0] = 'underwater lakes (colored)'
 
 mapLayout(TERRAIN)
 drawMap()

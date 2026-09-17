@@ -2,7 +2,11 @@ from __future__ import annotations
 from typing import (
 	Any,
 	Callable,
+	Generic,
+	TypeVar,
 )
+
+T = TypeVar("T")
 
 def scrMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
 	size = screens[0].size
@@ -20,7 +24,7 @@ def keyMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
 			screen[i,j] = fun(i,j,*screens)
 	return screen
 
-class Screen:
+class Screen(Generic[T]):
 	def __init__(self,size: int) -> None:
 		self.size = size
 		self.values = [[None for _ in range(size)] for _ in range(size)]
@@ -111,6 +115,45 @@ class Screen:
 							self[x,y] = value
 				else: raise KeyError
 			case _: raise KeyError
+	def __and__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u & v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u & other,
+				self,
+			)
+		return NotImplemented
+	def __or__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u | v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u | other,
+				self,
+			)
+		return NotImplemented
+	def __xor__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u ^ v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u ^ other,
+				self,
+			)
+		return NotImplemented
 	def __add__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
@@ -124,6 +167,8 @@ class Screen:
 				self,
 			)
 		return NotImplemented
+	def __radd__(self,other):
+		return self + other
 	def __sub__(self,other: Any) -> None:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
@@ -189,9 +234,40 @@ class Screen:
 				self,
 			)
 		return NotImplemented
+	def __rtruediv__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u / v,
+				other,
+				self,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : other / u,
+				self,
+			)
+		return NotImplemented
+	def __rfloordiv__(self,other: Any) -> None:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u // v,
+				other,
+				self,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : other // u,
+				self,
+			)
+		return NotImplemented
 	def __neg__(self) -> Screen:
 		return scrMap(
 			lambda v : -v,
+			self,
+		)
+	def __invert__(self) -> Screen:
+		return scrMap(
+			lambda v : ~v,
 			self,
 		)
 	def __pos__(self) -> Screen:
