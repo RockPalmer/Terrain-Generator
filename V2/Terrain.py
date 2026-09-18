@@ -71,6 +71,7 @@ MAX_SPEED = 20
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR = 0.5
+MIDWORLD_WATER_FACTOR = 1.5
 MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
 
 OVERWORLD_SEA_LEVEL: float = OVERWORLD_SEA_LEVEL_FACTOR * OVERWORLD_SURFACE_MAX
@@ -78,6 +79,7 @@ MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
 OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
 MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_MAX
 SNOW_LEVEL: float = OVERWORLD_SURFACE_MAX * SNOW_LEVEL_FACTOR
+OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_MAX + OVERWORLD_DEPTH_MAX
 
 itera = 0
 
@@ -281,7 +283,7 @@ def getSunlight() -> Screen:
 		lambda x,y,v : values[y],
 		Screen(GRID_SIZE),
 	)
-def getTopGreenery(
+def getOverworldGreenery(
 	*,
 	altitude: Screen|None = None,
 	land: Screen|None = None,
@@ -297,40 +299,40 @@ def getTopGreenery(
 		snow = getSnow(sunlight = sunlight,altitude = altitude)
 	return scrMap(
 		lambda w,u,v : (255,255,255) if w else (
-			int(u) // 2,
-			int(u) + (255 - int(u)) // 3,
-			int(u) // 2,
+			0,int(u),0
 		) if v else (
-			int(u) // 2,
-			int(u) // 2,
-			(255 + int(u)) // 2,
+			0,0,int(u)
 		),
 		snow,
 		altitude,
 		land,
 	)
-def getBottomGreenery(
+def getMidworldGreenery(
 	*,
-	altitude: Screen[int]|None = None,
-	land: Screen[bool]|None = None,
-	connected: Screen[bool]|None = None,
+	altitude: Screen[int],
+	land: Screen[bool],
+	connected: Screen[bool],
+	water: Screen[bool]
 ) -> Screen:
 	print('generating bottom greenery...')
 	if land is None:
 		land = getLand(altitude = altitude)
 	return scrMap(
-		lambda w,u,v : (0,0,0) if w else (
-			int(u) // 2,
-			int(u) + (255 - int(u)) // 3,
-			int(u) // 2,
-		) if v else (
-			int(u) // 2,
-			int(u) // 2,
-			(255 + int(u)) // 2,
+		lambda con,u,l,w : (0,0,0) if con else (
+			0,0,int(u)
+		) if w else (
+			int((u - MIDWORLD_SEA_LEVEL/2)/2),
+			int(u - MIDWORLD_SEA_LEVEL/2),
+			int((u - MIDWORLD_SEA_LEVEL/2)/2),
+		) if l else (
+			int(u + MIDWORLD_SEA_LEVEL),
+			int((u + MIDWORLD_SEA_LEVEL)/2),
+			0,
 		),
 		connected,
 		altitude,
 		land,
+		water,
 	)
 def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
 	print('generating connected edges...')
@@ -434,8 +436,11 @@ TERRAIN['midworld surface']: Screen[float] = (
 ) * MIDWORLD_SURFACE_MAX/2
 TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
 TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
+TERRAIN['overworld surface'] = ifMap(
+	abs(TERRAIN['overworld surface'] - SEA_LEVEL)
+)
 TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
-TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] - TERRAIN['overworld depth']
+TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
 TERRAIN['overworld-midworld connections']: Screen[bool] = TERRAIN['midworld surface'] >= (
 	OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 )
@@ -446,27 +451,56 @@ TERRAIN['midworld open space'] = ifMap(
 )
 TERRAIN['sunlight'] = getSunlight()
 TERRAIN['snow'] = ((OVERWORLD_SURFACE_MAX - TERRAIN['sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
-TERRAIN['overworld greenery'] = getTopGreenery(
+TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
+	connected = TERRAIN['overworld-midworld connections'],
+)
+TERRAIN['potential midworld water'] = TERRAIN['midworld land'] & ~(TERRAIN['overworld-midworld connections'] | TERRAIN['overworld land'])
+TERRAIN['midworld water'] = Screen(GRID_SIZE,0)
+for i in range(GRID_SIZE):
+	for j in range(GRID_SIZE):
+		if TERRAIN['potential midworld water'][i,j]:
+			total = (OVERWORLD_THICKNESS_MAX - TERRAIN['overworld thickness'][i,j]) * MIDWORLD_WATER_FACTOR/OVERWORLD_THICKNESS_MAX
+			print((i,j))
+			a = i
+			b = j
+			while True:
+				points = [
+					((a - 1) % GRID_SIZE,(b - 1) % GRID_SIZE),
+					((a - 1) % GRID_SIZE,b),
+					((a - 1) % GRID_SIZE,(b + 1) % GRID_SIZE),
+					(a,(b - 1) % GRID_SIZE),
+					(a,(b + 1) % GRID_SIZE),
+					((a + 1) % GRID_SIZE,(b - 1) % GRID_SIZE),
+					((a + 1) % GRID_SIZE,b),
+					((a + 1) % GRID_SIZE,(b + 1) % GRID_SIZE),
+				]
+				heights = [TERRAIN['midworld surface'][p] + TERRAIN['midworld water'][p] for p in points]
+				minHeight = min(heights)
+				if minHeight >= TERRAIN['midworld surface'][a,b] + TERRAIN['midworld water'][a,b]:
+					break
+				index = heights.index(minHeight)
+				minPoint = points[index]
+				a,b = minPoint
+			if TERRAIN['midworld land'][a,b]:
+				TERRAIN['midworld water'][a,b] += total
+TERRAIN['midworld water'] = TERRAIN['midworld water'] >= 1
+TERRAIN['overworld greenery'] = getOverworldGreenery(
 	altitude = TERRAIN['overworld surface'],
 	land = TERRAIN['overworld land'],
 	snow = TERRAIN['snow'],
 	sunlight = TERRAIN['sunlight'],
 )
-TERRAIN['midworld greenery'] = getBottomGreenery(
+TERRAIN['midworld greenery'] = getMidworldGreenery(
 	altitude = TERRAIN['midworld surface'],
 	land = TERRAIN['midworld land'],
 	connected = TERRAIN['overworld-midworld connections'],
+	water = TERRAIN['midworld water'],
 )
-TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
-	connected = TERRAIN['overworld-midworld connections'],
-)
-TERRAIN['potential midworld water'] = scrMap(bool,~(TERRAIN['overworld-midworld connections'] | TERRAIN['overworld land']))
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld-midworld connections (colored)'
-SCREEN_LAYOUT[1,0] = 'overworld land (colored)'
-SCREEN_LAYOUT[2,0] = 'potential midworld water (colored)'
+SCREEN_LAYOUT[0,0] = 'overworld greenery'
+SCREEN_LAYOUT[1,0] = 'midworld greenery'
 
 mapLayout(TERRAIN)
 drawMap()

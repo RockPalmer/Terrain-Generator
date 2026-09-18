@@ -62,9 +62,9 @@ def ifMap(s1,s2,s3) -> Screen:
 	return s1 if s2 else s3
 
 class Screen(Generic[T]):
-	def __init__(self,size: int) -> None:
+	def __init__(self,size: int,value = None) -> None:
 		self.size = size
-		self.values = [[None for _ in range(size)] for _ in range(size)]
+		self.values = [[value for _ in range(size)] for _ in range(size)]
 	def checkSame(self,x1,x2,y1,y2):
 		values = set()
 		for i in range(x1,x2):
@@ -155,11 +155,16 @@ class Screen(Generic[T]):
 	def __and__(self,other: Any) -> Screen:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
-				lambda u,v : u & v,
+				lambda u,v : u and v if isinstance(u,bool) and isinstance(v,bool) else u & v,
 				self,
 				other,
 			)
 		if not isinstance(other,Screen):
+			if isinstance(other,bool):
+				return scrMap(
+					lambda u : u and other if isinstance(u,bool) else u & other,
+					self,
+				)
 			return scrMap(
 				lambda u : u & other,
 				self,
@@ -168,11 +173,16 @@ class Screen(Generic[T]):
 	def __or__(self,other: Any) -> Screen:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
-				lambda u,v : u | v,
+				lambda u,v : u or v if isinstance(u,bool) and isinstance(v,bool) else u | v,
 				self,
 				other,
 			)
 		if not isinstance(other,Screen):
+			if isinstance(other,bool):
+				return scrMap(
+					lambda u : u or other if isinstance(u,bool) else u | other,
+					self,
+				)
 			return scrMap(
 				lambda u : u | other,
 				self,
@@ -354,7 +364,7 @@ class Screen(Generic[T]):
 		)
 	def __invert__(self) -> Screen:
 		return scrMap(
-			lambda v : ~v,
+			lambda v : not v if isinstance(v,bool) else ~v,
 			self,
 		)
 	def __pos__(self) -> Screen:
