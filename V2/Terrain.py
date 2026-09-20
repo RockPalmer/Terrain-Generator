@@ -45,21 +45,19 @@ COLOR_SCALE = [
 ]
 
 GRID_SIZE: int = 256
-CELL_SIZE: int = 2  # Size of each square in pixels
-MAX_COLOR: int = 255
-HUMIDITY_RANGE: int = (GRID_SIZE >> 5) - 1
-OVERWORLD_SURFACE_MAX: int = 255
-OVERWORLD_DEPTH_MAX: int = 255
-MIDWORLD_SURFACE_MAX: int = 255
+CELL_SIZE: int = 2
+OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
+OVERWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
+MIDWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
+MIDWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_SEA_LEVEL_FACTOR = 0.51
+MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 SNOW_LEVEL_FACTOR = 0.7
 TERRAIN_NOISE_SCALE: int = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44 * tau/360
 HUMIDITY_SMUDGE_RADIUS: int = 12
-DIAMETER: float = GRID_SIZE/pi
-RADIUS: float = DIAMETER/2
 UI_PANEL_WIDTH: int = 200
 UI_PANEL_MARGIN: int = 20
 NUM_CONTINENTS: int = 12
@@ -67,15 +65,28 @@ NUM_CONTINENT_RUNS: int = 5
 UI_RECT_COLOR: Color = (255,198,183)
 MAX_COLOR_INTEGER: int = 255**3 - 1
 ADJUSTED_EDGE_AMPLITUDE: int = 32
-MAX_SPEED = 20
+MAX_SPEED: int = 20
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
-MIDWORLD_SEA_LEVEL_FACTOR = 0.4
-OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR = 0.5
-MIDWORLD_WATER_FACTOR = 1.5
-MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
+OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR: float = 0.5
+MIDWORLD_WATER_FACTOR: float = 1.5
+MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
+OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
+OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 
+OVERWORLD_SURFACE_MIN: int = OVERWORLD_SURFACE_RANGE[0]
+OVERWORLD_SURFACE_MAX: int = OVERWORLD_SURFACE_RANGE[1] - 1
+OVERWORLD_DEPTH_MIN: int = OVERWORLD_DEPTH_RANGE[0]
+OVERWORLD_DEPTH_MAX: int = OVERWORLD_DEPTH_RANGE[1] - 1
+MIDWORLD_SURFACE_MIN: int = MIDWORLD_SURFACE_RANGE[0]
+MIDWORLD_SURFACE_MAX: int = MIDWORLD_SURFACE_RANGE[1] - 1
+MIDWORLD_DEPTH_MIN: int = MIDWORLD_DEPTH_RANGE[0]
+MIDWORLD_DEPTH_MAX: int = MIDWORLD_DEPTH_RANGE[1] - 1
 OVERWORLD_SEA_LEVEL: float = OVERWORLD_SEA_LEVEL_FACTOR * OVERWORLD_SURFACE_MAX
 MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
+DIAMETER: float = GRID_SIZE/pi
+RADIUS: float = DIAMETER/2
+
+OVERWORLD_CLOUD_DENSITY_WIDTH: float = GRID_SIZE * OVERWORLD_CLOUD_DENSITY_FACTOR
 OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
 MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_MAX
 SNOW_LEVEL: float = OVERWORLD_SURFACE_MAX * SNOW_LEVEL_FACTOR
@@ -240,7 +251,17 @@ def smudge(trn: Screen) -> Screen:
 			values = [trn[pt] for pt in pts]
 			screen[i,j] = sum(values)/len(values)
 	return screen
-def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Screen:
+def getPointsInRange(point: Point,rng: int | float) -> set[Point]:
+	x,y = point
+	points: set[Point] = set()
+	for i in range(x - rng,x + rng + 1):
+		for j in range(y - rng,y + rng + 1):
+			a = i % GRID_SIZE
+			b = j % GRID_SIZE
+			if getDistance((x,y),(a,b)) <= rng:
+				points.add((a,b))
+	return points
+def getHumidity(*,land: Screen[bool]) -> Screen:
 	print('generating humidity...')
 	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(OVERWORLD_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
 	if filename.is_file():
@@ -251,14 +272,12 @@ def getHumidity(*,land: Screen|None = None,altitude: Screen|None = None) -> Scre
 			lambda x,y,v : values[x][y],
 			Screen(GRID_SIZE),
 		)
-	if land is None:
-		land = getLand(altitude)
-	humidity = 255 - smudge(
-		scrMap(
-			lambda v : 255 if v else 0,
-			land,
-		)
-	)
+	humidity = Screen(GRID_SIZE)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			points = list(getPointsInRange((i,j),12))
+			dists = [getDistance((i,j),p) for p in points if not land[p]]
+			humidity[i,j] = 12 - sum(dists)/len(dists) if len(dists) > 0 else 12
 	values = [[humidity[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
@@ -436,9 +455,6 @@ TERRAIN['midworld surface']: Screen[float] = (
 ) * MIDWORLD_SURFACE_MAX/2
 TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
 TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
-TERRAIN['overworld surface'] = ifMap(
-	abs(TERRAIN['overworld surface'] - SEA_LEVEL)
-)
 TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
 TERRAIN['overworld-midworld connections']: Screen[bool] = TERRAIN['midworld surface'] >= (
@@ -460,7 +476,6 @@ for i in range(GRID_SIZE):
 	for j in range(GRID_SIZE):
 		if TERRAIN['potential midworld water'][i,j]:
 			total = (OVERWORLD_THICKNESS_MAX - TERRAIN['overworld thickness'][i,j]) * MIDWORLD_WATER_FACTOR/OVERWORLD_THICKNESS_MAX
-			print((i,j))
 			a = i
 			b = j
 			while True:
@@ -496,11 +511,34 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
 )
+TERRAIN['overworld humidity'] = getHumidity(land = TERRAIN['overworld land'])
+print(max({v for v in TERRAIN['overworld humidity']}))
+print(min({v for v in TERRAIN['overworld humidity']}))
+TERRAIN['overworld humidity'] *= 255/12
+print(max({v for v in TERRAIN['overworld humidity']}))
+print(min({v for v in TERRAIN['overworld humidity']}))
+TERRAIN['overworld cloud density'] = keyMap(
+	lambda x,y,v : OVERWORLD_CLOUD_DENSITY_STRENGTH*e**(
+		-(
+			(
+				(
+					2/OVERWORLD_CLOUD_DENSITY_WIDTH
+				)*(
+					y - GRID_SIZE / 2
+				)
+			)**2
+		)
+	),
+	Screen(GRID_SIZE),
+)
+
+TERRAIN['overworld cloud density'] *= 255/OVERWORLD_CLOUD_DENSITY_STRENGTH
 
 addColor(TERRAIN)
 
 SCREEN_LAYOUT[0,0] = 'overworld greenery'
 SCREEN_LAYOUT[1,0] = 'midworld greenery'
+SCREEN_LAYOUT[2,0] = 'overworld humidity (colored)'
 
 mapLayout(TERRAIN)
 drawMap()

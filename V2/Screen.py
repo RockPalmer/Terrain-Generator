@@ -21,7 +21,7 @@ def keyMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
 	screen = Screen(size)
 	for i in range(size):
 		for j in range(size):
-			screen[i,j] = fun(i,j,*screens)
+			screen[i,j] = fun(i,j,*[s[i,j] for s in screens])
 	return screen
 def ifMap(s1,s2,s3) -> Screen:
 	if isinstance(s1,Screen):
