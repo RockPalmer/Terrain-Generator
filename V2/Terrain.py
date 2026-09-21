@@ -57,7 +57,7 @@ TERRAIN_NOISE_SCALE: int = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44 * tau/360
-HUMIDITY_SMUDGE_RADIUS: int = 12
+HUMIDITY_SMUDGE_RADIUS: int = 4
 UI_PANEL_WIDTH: int = 200
 UI_PANEL_MARGIN: int = 20
 NUM_CONTINENTS: int = 12
@@ -251,16 +251,6 @@ def smudge(trn: Screen) -> Screen:
 			values = [trn[pt] for pt in pts]
 			screen[i,j] = sum(values)/len(values)
 	return screen
-def getPointsInRange(point: Point,rng: int | float) -> set[Point]:
-	x,y = point
-	points: set[Point] = set()
-	for i in range(x - rng,x + rng + 1):
-		for j in range(y - rng,y + rng + 1):
-			a = i % GRID_SIZE
-			b = j % GRID_SIZE
-			if getDistance((x,y),(a,b)) <= rng:
-				points.add((a,b))
-	return points
 def getHumidity(*,land: Screen[bool]) -> Screen:
 	print('generating humidity...')
 	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(OVERWORLD_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
@@ -272,12 +262,12 @@ def getHumidity(*,land: Screen[bool]) -> Screen:
 			lambda x,y,v : values[x][y],
 			Screen(GRID_SIZE),
 		)
+	offsets = [(x,y) for x in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) for y in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) if getDistance((0,0),(x,y)) <= HUMIDITY_SMUDGE_RADIUS]
 	humidity = Screen(GRID_SIZE)
 	for i in range(GRID_SIZE):
 		for j in range(GRID_SIZE):
-			points = list(getPointsInRange((i,j),12))
-			dists = [getDistance((i,j),p) for p in points if not land[p]]
-			humidity[i,j] = 12 - sum(dists)/len(dists) if len(dists) > 0 else 12
+			points = [((i + x) % GRID_SIZE,(j + y) % GRID_SIZE) for x,y in offsets]
+			humidity[i,j] = len([p for p in points if not land[p]])/len(points)
 	values = [[humidity[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
@@ -430,8 +420,6 @@ def drawMap() -> None:
 				raise
 	pygame.display.flip()
 
-# totalConvergence = float[-MAX_SPEED,MAX_SPEED] * int[>0]
-
 TERRAIN['overworld surface']: Screen[float] = (
 	perlinNoise(
 		seed = NOISE_SEED,
@@ -511,10 +499,29 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
 )
-TERRAIN['overworld humidity'] = getHumidity(land = TERRAIN['overworld land'])
+offsets = [(x,y) for x in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) for y in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) if getDistance((0,0),(x,y)) <= HUMIDITY_SMUDGE_RADIUS]
+distances = [getDistance((x % GRID_SIZE,y % GRID_SIZE),(0,0)) for x,y in offsets]
+TERRAIN['overworld humidity'] = keyMap(
+	lambda x,y,v : sum(
+		1 for i,j in offsets if HUMIDITY_SMUDGE_RADIUS if not TERRAIN['overworld land'][
+			(x + i) % GRID_SIZE,
+			(y + j) % GRID_SIZE,
+		]
+	)/len(offsets),
+	TERRAIN['overworld land'],
+)
+TERRAIN['overworld coastline'] = keyMap(
+	lambda x,y,v : v and not all(
+		TERRAIN['overworld land'][
+			(x + i) % GRID_SIZE,
+			(y + j) % GRID_SIZE,
+		] for i in range(-1,2) for j in range(-1,2)
+	),
+	TERRAIN['overworld land'],
+)
 print(max({v for v in TERRAIN['overworld humidity']}))
 print(min({v for v in TERRAIN['overworld humidity']}))
-TERRAIN['overworld humidity'] *= 255/12
+TERRAIN['overworld humidity'] *= 255
 print(max({v for v in TERRAIN['overworld humidity']}))
 print(min({v for v in TERRAIN['overworld humidity']}))
 TERRAIN['overworld cloud density'] = keyMap(
