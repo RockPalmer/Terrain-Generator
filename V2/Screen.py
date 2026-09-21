@@ -8,7 +8,7 @@ from typing import (
 
 T = TypeVar("T")
 
-def scrMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
+def scrMap(fun: Callable,*screens: tuple[Screen,...]) -> Screen:
 	size = screens[0].size
 	screen = Screen(size)
 	for i in range(size):
@@ -16,8 +16,13 @@ def scrMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
 			scns = [scn[i,j] for scn in screens]
 			screen[i,j] = fun(*scns)
 	return screen
-def keyMap(fun: Callable, *screens: tuple[Screen,...]) -> Screen:
-	size = screens[0].size
+def keyMap(fun: Callable, *nscreens: tuple[Screen,...]) -> Screen:
+	if isinstance(nscreens[0],int):
+		size = nscreens[0]
+		screens = nscreens[1:]
+	else:
+		size = nscreens[0].size
+		screens = nscreens
 	screen = Screen(size)
 	for i in range(size):
 		for j in range(size):

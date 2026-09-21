@@ -23,6 +23,8 @@ from numpy import (
 )
 from numpy.linalg import norm
 from itertools import product
+from functools import reduce
+from operator import or_
 
 SCREEN_LAYOUT = {}
 FINAL_SCREEN_LAYOUT = []
@@ -57,7 +59,7 @@ TERRAIN_NOISE_SCALE: int = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44 * tau/360
-HUMIDITY_SMUDGE_RADIUS: int = 4
+HUMIDITY_SMUDGE_RADIUS: int = 7
 UI_PANEL_WIDTH: int = 200
 UI_PANEL_MARGIN: int = 20
 NUM_CONTINENTS: int = 12
@@ -127,8 +129,8 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[f
 			content = f.read()
 		values = json.loads(content)
 		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
+			lambda x,y : values[x][y],
+			GRID_SIZE,
 		)
 	rng = random.Random(seed)
 	seed_offset = rng.random() * 10000.0
@@ -210,6 +212,12 @@ def randPoint(rng) -> Point:
 		rng.randint(0,GRID_SIZE),
 		rng.randint(0,GRID_SIZE),
 	)
+def randColor(rng) -> Color:
+	return (
+		rng.randint(0,255),
+		rng.randint(0,255),
+		rng.randint(0,255),
+	)
 def getCentroid(points: list[Point]) -> Point:
 	return (
 		round(sum(p[0] for p in points)/len(points)),
@@ -259,8 +267,8 @@ def getHumidity(*,land: Screen[bool]) -> Screen:
 			content = f.read()
 		values = json.loads(content)
 		return keyMap(
-			lambda x,y,v : values[x][y],
-			Screen(GRID_SIZE),
+			lambda x,y : values[x][y],
+			GRID_SIZE,
 		)
 	offsets = [(x,y) for x in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) for y in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) if getDistance((0,0),(x,y)) <= HUMIDITY_SMUDGE_RADIUS]
 	humidity = Screen(GRID_SIZE)
@@ -281,16 +289,16 @@ def getSunlight() -> Screen:
 			content = f.read()
 		sunlight = json.loads(content)
 		return keyMap(
-			lambda x,y,v : sunlight[y],
-			Screen(GRID_SIZE),
+			lambda x,y : sunlight[y],
+			GRID_SIZE,
 		)
 	values = [getAvgSunlightValue(y) for y in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return keyMap(
-		lambda x,y,v : values[y],
-		Screen(GRID_SIZE),
+		lambda x,y : values[y],
+		GRID_SIZE,
 	)
 def getOverworldGreenery(
 	*,
@@ -360,21 +368,53 @@ def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
 		for j in range(GRID_SIZE):
 			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
 	return result
+def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
+	print('START')
+	def neighbors(p1,p2):
+		return (
+			p1[0] == p2[0] and (
+				(p1[1] + 1) % GRID_SIZE == p2[1] or
+				(p1[1] - 1) % GRID_SIZE == p2[1]
+			) or p1[1] == p2[1] and (
+				(p1[0] + 1) % GRID_SIZE == p2[0] or
+				(p1[0] - 1) % GRID_SIZE == p2[0]
+			)
+		)
+	def belongsTo(p,b):
+		return any(neighbors(p,pt) for pt in b)
+	points: list[Point] = [(i,j) for i in range(GRID_SIZE) for j in range(GRID_SIZE) if not land[i,j]]
+	bodies: list[set[Point]] = []
+	for point in points:
+		indices = set()
+		for i,body in enumerate(bodies):
+			if belongsTo(point,body):
+				indices.add(i)
+		if len(indices) > 0:
+			bodies = [
+				{point} | reduce(
+					or_,
+					[body for i,body in enumerate(bodies) if i in indices]
+				)
+			] + [body for i,body in enumerate(bodies) if i not in indices]
+		else:
+			bodies.append({point})
+	print('END')
+	return bodies
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
 		if isinstance(trn[k][0,0],bool):
-			trn[f"{k} (colored)"] = scrMap(
+			trn[k] = scrMap(
 				lambda v : (255,255,255) if v else (0,0,0),
 				trn[k],
 			)
 		elif isinstance(trn[k][0,0],int|float):
-			trn[f"{k} (colored)"] = scrMap(
+			trn[k] = scrMap(
 				lambda v : (int(v),int(v),int(v)),
 				trn[k],
 			)
 		elif isinstance(trn[k][0,0],tuple) and len(trn[k][0,0]) == 2:
-			trn[f"{k} (colored)"] = scrMap(
+			trn[k] = scrMap(
 				lambda v : pointToColor(v),
 				trn[k],
 			)
@@ -499,17 +539,26 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
 )
-offsets = [(x,y) for x in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) for y in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) if getDistance((0,0),(x,y)) <= HUMIDITY_SMUDGE_RADIUS]
-distances = [getDistance((x % GRID_SIZE,y % GRID_SIZE),(0,0)) for x,y in offsets]
-TERRAIN['overworld humidity'] = keyMap(
-	lambda x,y,v : sum(
-		1 for i,j in offsets if HUMIDITY_SMUDGE_RADIUS if not TERRAIN['overworld land'][
-			(x + i) % GRID_SIZE,
-			(y + j) % GRID_SIZE,
-		]
-	)/len(offsets),
-	TERRAIN['overworld land'],
+bodiesMap = getBodiesOfWater(TERRAIN['overworld land'])
+colors = []
+rng = random.Random(NOISE_SEED)
+while len(colors) < len(bodiesMap):
+	c = randColor(rng)
+	if c not in colors:
+		colors.append(c)
+bodiesOfWater = {}
+for i,body in enumerate(bodiesMap):
+	for point in body:
+		bodiesOfWater[point] = colors[i]
+for i in range(GRID_SIZE):
+	for j in range(GRID_SIZE):
+		if (i,j) not in bodiesOfWater:
+			bodiesOfWater[i,j] = None
+TERRAIN['overworld bodies of water'] = keyMap(
+	lambda x,y : bodiesOfWater[x,y] if bodiesOfWater[x,y] is not None else (0,0,0),
+	GRID_SIZE,
 )
+
 TERRAIN['overworld coastline'] = keyMap(
 	lambda x,y,v : v and not all(
 		TERRAIN['overworld land'][
@@ -519,13 +568,8 @@ TERRAIN['overworld coastline'] = keyMap(
 	),
 	TERRAIN['overworld land'],
 )
-print(max({v for v in TERRAIN['overworld humidity']}))
-print(min({v for v in TERRAIN['overworld humidity']}))
-TERRAIN['overworld humidity'] *= 255
-print(max({v for v in TERRAIN['overworld humidity']}))
-print(min({v for v in TERRAIN['overworld humidity']}))
 TERRAIN['overworld cloud density'] = keyMap(
-	lambda x,y,v : OVERWORLD_CLOUD_DENSITY_STRENGTH*e**(
+	lambda x,y : OVERWORLD_CLOUD_DENSITY_STRENGTH*e**(
 		-(
 			(
 				(
@@ -536,16 +580,14 @@ TERRAIN['overworld cloud density'] = keyMap(
 			)**2
 		)
 	),
-	Screen(GRID_SIZE),
+	GRID_SIZE,
 )
 
 TERRAIN['overworld cloud density'] *= 255/OVERWORLD_CLOUD_DENSITY_STRENGTH
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld greenery'
-SCREEN_LAYOUT[1,0] = 'midworld greenery'
-SCREEN_LAYOUT[2,0] = 'overworld humidity (colored)'
+SCREEN_LAYOUT[0,0] = 'overworld bodies of water'
 
 mapLayout(TERRAIN)
 drawMap()
