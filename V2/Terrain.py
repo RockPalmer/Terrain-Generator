@@ -52,7 +52,7 @@ OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
 MIDWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
 MIDWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
-OVERWORLD_SEA_LEVEL_FACTOR = 0.51
+OVERWORLD_SEA_LEVEL_FACTOR = 0.55
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 SNOW_LEVEL_FACTOR = 0.7
 TERRAIN_NOISE_SCALE: int = 1
@@ -369,7 +369,11 @@ def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
 			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
 	return result
 def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
-	print('START')
+	filename = Path(f"bodiesOfWater_{flm(OVERWORLD_SEA_LEVEL)}_{flm(OVERWORLD_DEPTH_MAX)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(NOISE_SEED)}.json")
+	if filename.is_file():
+		with open(filename,mode = 'r') as f:
+			content = f.read()
+		return [{tuple(u) for u in v} for v in json.loads(content)]
 	def neighbors(p1,p2):
 		return (
 			p1[0] == p2[0] and (
@@ -398,7 +402,10 @@ def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
 			] + [body for i,body in enumerate(bodies) if i not in indices]
 		else:
 			bodies.append({point})
-	print('END')
+	values = [[list(u) for u in v] for v in bodies]
+	content = json.dumps(values)
+	with open(filename,mode = 'w') as f:
+		f.write(content)
 	return bodies
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
@@ -467,6 +474,10 @@ TERRAIN['overworld surface']: Screen[float] = (
 		octaves = TERRAIN_NOISE_OCTAVES,
 	) + 1
 ) * OVERWORLD_SURFACE_MAX/2
+maxv = max({v for v in TERRAIN['overworld surface']})
+nmaxv = (255 + maxv)/2
+factor = (nmaxv - OVERWORLD_SEA_LEVEL)/(maxv - OVERWORLD_SEA_LEVEL)
+TERRAIN['overworld surface scaled'] = (TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL) * factor + OVERWORLD_SEA_LEVEL
 TERRAIN['overworld depth']: Screen[float] = (
 	perlinNoise(
 		seed = NOISE_SEED + 1,
@@ -482,6 +493,38 @@ TERRAIN['midworld surface']: Screen[float] = (
 	) + 1
 ) * MIDWORLD_SURFACE_MAX/2
 TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
+bodiesMap = getBodiesOfWater(TERRAIN['overworld land'])
+total = sum(len(b) for b in bodiesMap)
+for points in bodiesMap:
+	if len(points) <= 0.1 * total:
+		for point in points:
+			TERRAIN['overworld land'][point] = True
+TERRAIN['overworld surface'] = ifMap(
+	TERRAIN['overworld surface scaled'],
+	TERRAIN['overworld land'],
+	TERRAIN['overworld surface'],
+)
+TERRAIN['overworld true surface'] = ifMap(
+	TERRAIN['overworld surface'],
+	TERRAIN['overworld land'],
+	OVERWORLD_SEA_LEVEL,
+)
+TERRAIN['overworld surface derivative x'] = keyMap(
+	lambda x,y : (TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y]) / 2,
+	GRID_SIZE,
+)
+vals = {v for v in TERRAIN['overworld surface derivative x']}
+maxv = max(vals)
+minv = min(vals)
+TERRAIN['overworld surface derivative x'] = (TERRAIN['overworld surface derivative x'] - minv) * 255/(maxv - minv)
+TERRAIN['overworld surface derivative y'] = keyMap(
+	lambda x,y : (TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE]) / 2,
+	GRID_SIZE,
+)
+vals = {v for v in TERRAIN['overworld surface derivative y']}
+maxv = max(vals)
+minv = min(vals)
+TERRAIN['overworld surface derivative y'] = (TERRAIN['overworld surface derivative y'] - minv) * 255/(maxv - minv)
 TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
 TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
@@ -494,7 +537,7 @@ TERRAIN['midworld open space'] = ifMap(
 	TERRAIN['overworld depth altitude'] - TERRAIN['midworld surface'],
 )
 TERRAIN['sunlight'] = getSunlight()
-TERRAIN['snow'] = ((OVERWORLD_SURFACE_MAX - TERRAIN['sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
+TERRAIN['snow'] = (0.85 * (OVERWORLD_SURFACE_MAX - TERRAIN['sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
 TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
 	connected = TERRAIN['overworld-midworld connections'],
 )
@@ -539,7 +582,6 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
 )
-bodiesMap = getBodiesOfWater(TERRAIN['overworld land'])
 colors = []
 rng = random.Random(NOISE_SEED)
 while len(colors) < len(bodiesMap):
@@ -587,7 +629,9 @@ TERRAIN['overworld cloud density'] *= 255/OVERWORLD_CLOUD_DENSITY_STRENGTH
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld bodies of water'
+SCREEN_LAYOUT[0,0] = 'overworld surface'
+SCREEN_LAYOUT[1,0] = 'overworld surface derivative x'
+SCREEN_LAYOUT[2,0] = 'overworld surface derivative y'
 
 mapLayout(TERRAIN)
 drawMap()
