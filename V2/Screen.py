@@ -86,6 +86,14 @@ class Screen(Generic[T]):
 			for j in range(self.size):
 				yield ((i,j),self[i,j])
 	def __getitem__(self,index: tuple):
+		if not isinstance(index,tuple) or len(index) != 2:
+			raise KeyError(f"Screen[{index}]")
+		return self.values[index[0]][index[1]]
+	def __setitem__(self,index: tuple,value: Any) -> None:
+		if not isinstance(index,tuple) or len(index) != 2:
+			raise KeyError(f"Screen[{index}]")
+		self.values[index[0]][index[1]] == value
+	def getitem(self,index: tuple):
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")
 		match len(index):
@@ -123,7 +131,7 @@ class Screen(Generic[T]):
 					return screen
 				raise KeyError
 			case _: raise KeyError
-	def __setitem__(self,index: tuple,value: Any) -> None:
+	def setitem(self,index: tuple,value: Any) -> None:
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")
 		match len(index):
@@ -359,6 +367,32 @@ class Screen(Generic[T]):
 		if not isinstance(other,Screen):
 			return scrMap(
 				lambda u : other % u,
+				self,
+			)
+		return NotImplemented
+	def __pow__(self,other: Any) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u ** v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u ** other,
+				self,
+			)
+		return NotImplemented
+	def __rpow__(self,other) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u ** v,
+				other,
+				self,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : other ** u,
 				self,
 			)
 		return NotImplemented

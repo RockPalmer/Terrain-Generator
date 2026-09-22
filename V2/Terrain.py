@@ -136,7 +136,6 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[f
 	seed_offset = rng.random() * 10000.0
 	noise_map = Screen(GRID_SIZE)
 	for y in range(GRID_SIZE):
-		row = []
 		for x in range(GRID_SIZE):
 			value = 0.0
 			amplitude = 1.0
@@ -155,7 +154,7 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[f
 				amplitude_sum += amplitude
 				amplitude *= 0.5
 				frequency *= 2.0
-			noise_map[y,x] = value / amplitude_sum
+			noise_map[x,y] = value / amplitude_sum
 	values = [[noise_map[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
@@ -509,22 +508,85 @@ TERRAIN['overworld true surface'] = ifMap(
 	TERRAIN['overworld land'],
 	OVERWORLD_SEA_LEVEL,
 )
-TERRAIN['overworld surface derivative x'] = keyMap(
-	lambda x,y : (TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y]) / 2,
+TERRAIN['overworld surface derivative x-'] = keyMap(
+	lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y],
 	GRID_SIZE,
 )
+TERRAIN['overworld surface derivative x+'] = keyMap(
+	lambda x,y : TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][x,y],
+	GRID_SIZE,
+)
+TERRAIN['overworld surface derivative x'] = (TERRAIN['overworld surface derivative x-'] + TERRAIN['overworld surface derivative x+']) / 2
 vals = {v for v in TERRAIN['overworld surface derivative x']}
 maxv = max(vals)
 minv = min(vals)
 TERRAIN['overworld surface derivative x'] = (TERRAIN['overworld surface derivative x'] - minv) * 255/(maxv - minv)
-TERRAIN['overworld surface derivative y'] = keyMap(
-	lambda x,y : (TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE]) / 2,
+TERRAIN['overworld surface derivative y-'] = keyMap(
+	lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE],
 	GRID_SIZE,
 )
+TERRAIN['overworld surface derivative y+'] = keyMap(
+	lambda x,y : TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,y],
+	GRID_SIZE,
+)
+TERRAIN['overworld surface derivative y'] = (TERRAIN['overworld surface derivative y-'] + TERRAIN['overworld surface derivative y+']) / 2
 vals = {v for v in TERRAIN['overworld surface derivative y']}
 maxv = max(vals)
 minv = min(vals)
 TERRAIN['overworld surface derivative y'] = (TERRAIN['overworld surface derivative y'] - minv) * 255/(maxv - minv)
+TERRAIN['overworld surface normal magnitude'] = (1 + TERRAIN['overworld surface derivative x']**2 + TERRAIN['overworld surface derivative y']**2)**0.5
+TERRAIN['overworld surface normal x'] = -TERRAIN['overworld surface derivative x'] / TERRAIN['overworld surface normal magnitude']
+TERRAIN['overworld surface normal y'] = -TERRAIN['overworld surface derivative y'] / TERRAIN['overworld surface normal magnitude']
+TERRAIN['overworld surface normal z'] = 1 / TERRAIN['overworld surface normal magnitude']
+TERRAIN['overworld surface wind x'] = Screen(GRID_SIZE,0)
+TERRAIN['overworld surface wind y'] = Screen(GRID_SIZE,0)
+for i in range(GRID_SIZE):
+	if i >= 0 and i < (1/6) * GRID_SIZE - GRID_SIZE/18:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+	elif i >= (1/6) * GRID_SIZE - GRID_SIZE/18 and i < (1/6) * GRID_SIZE:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = 0
+			TERRAIN['overworld surface wind y'][i,j] = 0
+	elif i >= (1/6) * GRID_SIZE and i < (2/6) * GRID_SIZE:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+	elif i >= (2/6) * GRID_SIZE and i < (2/6) * GRID_SIZE + GRID_SIZE/18:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = 0
+			TERRAIN['overworld surface wind y'][i,j] = 0
+	elif i >= (2/6) * GRID_SIZE + GRID_SIZE/18 and i < (3/6) * GRID_SIZE - GRID_SIZE/18:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+	elif i >= (3/6) * GRID_SIZE - GRID_SIZE/18 and i < (3/6) * GRID_SIZE + GRID_SIZE/18:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = 0
+			TERRAIN['overworld surface wind y'][i,j] = 0
+	elif i >= (3/6) * GRID_SIZE + GRID_SIZE/18 and i < (4/6) * GRID_SIZE - GRID_SIZE/18:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+	elif i >= (4/6) * GRID_SIZE - GRID_SIZE/18 and i < (4/6) * GRID_SIZE:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = 0
+			TERRAIN['overworld surface wind y'][i,j] = 0
+	elif i >= (4/6) * GRID_SIZE and i < (5/6) * GRID_SIZE:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+	elif i >= (5/6) * GRID_SIZE and i < (5/6) * GRID_SIZE + GRID_SIZE/12:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = 0
+			TERRAIN['overworld surface wind y'][i,j] = 0
+	else:
+		for j in range(GRID_SIZE):
+			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+TERRAIN['overworld surface wind x'] = (TERRAIN['overworld surface wind x'] + MAX_SPEED) * 255/(2*MAX_SPEED)
+TERRAIN['overworld surface wind Y'] = (TERRAIN['overworld surface wind Y'] + MAX_SPEED) * 255/(2*MAX_SPEED)
 TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
 TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
@@ -630,8 +692,8 @@ TERRAIN['overworld cloud density'] *= 255/OVERWORLD_CLOUD_DENSITY_STRENGTH
 addColor(TERRAIN)
 
 SCREEN_LAYOUT[0,0] = 'overworld surface'
-SCREEN_LAYOUT[1,0] = 'overworld surface derivative x'
-SCREEN_LAYOUT[2,0] = 'overworld surface derivative y'
+SCREEN_LAYOUT[1,0] = 'overworld surface wind x'
+SCREEN_LAYOUT[2,0] = 'overworld surface wind y'
 
 mapLayout(TERRAIN)
 drawMap()
