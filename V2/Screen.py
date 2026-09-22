@@ -92,7 +92,7 @@ class Screen(Generic[T]):
 	def __setitem__(self,index: tuple,value: Any) -> None:
 		if not isinstance(index,tuple) or len(index) != 2:
 			raise KeyError(f"Screen[{index}]")
-		self.values[index[0]][index[1]] == value
+		self.values[index[0]][index[1]] = value
 	def getitem(self,index: tuple):
 		if not isinstance(index,tuple):
 			raise KeyError(f"Screen[{index}]")

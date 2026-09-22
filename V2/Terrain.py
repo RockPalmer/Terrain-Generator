@@ -25,6 +25,10 @@ from numpy.linalg import norm
 from itertools import product
 from functools import reduce
 from operator import or_
+from typing import (
+	Callable,
+	Any,
+)
 
 SCREEN_LAYOUT = {}
 FINAL_SCREEN_LAYOUT = []
@@ -52,6 +56,8 @@ OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
 MIDWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
 MIDWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
+OVERWORLD_TEMPERATURE_RANGE: tuple[float,float] = (-89.2,56.7)
+OVERWORLD_SUNLIGHT_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_SEA_LEVEL_FACTOR = 0.55
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 SNOW_LEVEL_FACTOR = 0.7
@@ -75,6 +81,10 @@ MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_
 OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
 OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 
+OVERWORLD_TEMPERATURE_MIN: float = OVERWORLD_TEMPERATURE_RANGE[0]
+OVERWORLD_TEMPERATURE_MAX: float = OVERWORLD_TEMPERATURE_RANGE[1]
+OVERWORLD_SUNLIGHT_MIN: int = OVERWORLD_SUNLIGHT_RANGE[0]
+OVERWORLD_SUNLIGHT_MAX: int = OVERWORLD_SUNLIGHT_RANGE[1] - 1
 OVERWORLD_SURFACE_MIN: int = OVERWORLD_SURFACE_RANGE[0]
 OVERWORLD_SURFACE_MAX: int = OVERWORLD_SURFACE_RANGE[1] - 1
 OVERWORLD_DEPTH_MIN: int = OVERWORLD_DEPTH_RANGE[0]
@@ -111,11 +121,7 @@ def dn():
 	global itera
 
 	itera -= 1
-def flm(value) -> str:
-	if isinstance(value,float):
-		return str(value).replace('.','-')
-	return str(value)
-def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[float]:
+def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1,size: int) -> Screen[float]:
 	print('generating perlin noise...')
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
@@ -123,28 +129,28 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[f
 	Returns:
 	    list[list[float]]: values approximately [-1, 1]
 	"""
-	filename = Path(f"pnoise_{flm(GRID_SIZE)}_{flm(seed)}_{flm(scale)}_{flm(octaves)}.json")
+	filename = Path(f"pnoise_{size}_{seed}_{scale}_{octaves}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
 		values = json.loads(content)
 		return keyMap(
 			lambda x,y : values[x][y],
-			GRID_SIZE,
+			size,
 		)
 	rng = random.Random(seed)
 	seed_offset = rng.random() * 10000.0
-	noise_map = Screen(GRID_SIZE)
-	for y in range(GRID_SIZE):
-		for x in range(GRID_SIZE):
+	noise_map = Screen(size)
+	for y in range(size):
+		for x in range(size):
 			value = 0.0
 			amplitude = 1.0
 			frequency = 1.0
 			amplitude_sum = 0.0
 			for octave in range(octaves):
 				# Map grid coordinates onto a torus
-				angle_x = 2.0 * pi * x / GRID_SIZE
-				angle_y = 2.0 * pi * y / GRID_SIZE
+				angle_x = 2.0 * pi * x / size
+				angle_y = 2.0 * pi * y / size
 				nx = cos(angle_x) * scale * frequency
 				ny = sin(angle_x) * scale * frequency
 				nz = cos(angle_y) * scale * frequency
@@ -155,7 +161,7 @@ def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[f
 				amplitude *= 0.5
 				frequency *= 2.0
 			noise_map[x,y] = value / amplitude_sum
-	values = [[noise_map[x,y] for y in range(GRID_SIZE)] for x in range(GRID_SIZE)]
+	values = [[noise_map[x,y] for y in range(size)] for x in range(size)]
 	content = json.dumps(values)
 	with open(filename,mode = 'w') as f:
 		f.write(content)
@@ -224,28 +230,24 @@ def getCentroid(points: list[Point]) -> Point:
 	)
 def getAngleForDay(latt: int,day: int) -> float:
 	return (lattitudeToAngle(latt) + getCurrentTilt(day)) % tau
-def getVectorForDay(latt: int,day: int) -> tuple[float,float]:
+def getVectorForDay(latt: int,day: int) -> tuple[float,float]: # (float[-GRID_SIZE/2pi,GRID_SIZE/2pi],float[-GRID_SIZE/2pi,GRID_SIZE/2pi])
 	theta = getAngleForDay(latt,day)
 	return (
 		RADIUS * cos(theta),
 		RADIUS * sin(theta),
 	)
-def getSunlightValue(latt: int,day: int) -> float:
+def getSunlightValue(latt: int,day: int) -> float: # float[-(GRID_SIZE/2pi)**2,(GRID_SIZE/2pi)**2]
 	x,y = getVectorForDay(latt,day)
 	return x * -RADIUS
-def getNormalizedSunlightValue(latt: int,day: int) -> float:
+def getNormalizedSunlightValue(latt: int,day: int) -> float: # float[-(GRID_SIZE/2pi)**2,(GRID_SIZE/2pi)**2]
 	return (
 		getSunlightValue(latt,day) + getSunlightValue(GRID_SIZE - latt,day)
 	)/2
-def getAvgSunlightValue(latt: int) -> float:
-	values = [getNormalizedSunlightValue(latt,day) for day in range(364)]
-	return (sum(values)/len(values) + RADIUS**2) * 255/(2 * RADIUS**2)
+def getAvgSunlightValue(latt: int) -> float: # float[0,GRID_SIZE]
+	values = [getNormalizedSunlightValue(latt,day) for day in range(365)]
+	return (sum(values)/len(values) + RADIUS**2) * (OVERWORLD_SUNLIGHT_MAX - OVERWORLD_SUNLIGHT_MIN)/(2 * RADIUS**2) + OVERWORLD_SUNLIGHT_MIN
 def smudge(trn: Screen) -> Screen:
-	points = set()
-	for i in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS):
-		for j in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS):
-			if i**2 + j**2 <= HUMIDITY_SMUDGE_RADIUS**2:
-				points.add((i,j))
+	points = {(i,j) for i in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS) for j in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS)}
 	screen = Screen(GRID_SIZE)
 	for i in range(GRID_SIZE):
 		for j in range(GRID_SIZE):
@@ -260,7 +262,7 @@ def smudge(trn: Screen) -> Screen:
 	return screen
 def getHumidity(*,land: Screen[bool]) -> Screen:
 	print('generating humidity...')
-	filename = Path(f"humidity_{flm(NOISE_SEED)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(GRID_SIZE)}_{flm(OVERWORLD_SEA_LEVEL_FACTOR)}_{flm(HUMIDITY_SMUDGE_RADIUS)}.json")
+	filename = Path(f"humidity_{NOISE_SEED}_{TERRAIN_NOISE_SCALE}_{TERRAIN_NOISE_OCTAVES}_{GRID_SIZE}_{OVERWORLD_SEA_LEVEL_FACTOR}_{HUMIDITY_SMUDGE_RADIUS}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -280,9 +282,9 @@ def getHumidity(*,land: Screen[bool]) -> Screen:
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return humidity
-def getSunlight() -> Screen:
+def getSunlight() -> Screen[float]: # float[0,GRID_SIZE]
 	print('generating sunlight...')
-	filename = Path(f"sunlight_{flm(GRID_SIZE)}_{flm(AXIS_TILT)}.json")
+	filename = Path(f"sunlight_{GRID_SIZE}_{AXIS_TILT}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -305,7 +307,7 @@ def getOverworldGreenery(
 	land: Screen|None = None,
 	snow : Screen|None = None,
 	sunlight: Screen|None = None,
-) -> Screen:
+) -> Screen[Color]:
 	print('generating top greenery...')
 	if land is None:
 		land = getLand(altitude = altitude)
@@ -329,7 +331,7 @@ def getMidworldGreenery(
 	land: Screen[bool],
 	connected: Screen[bool],
 	water: Screen[bool]
-) -> Screen:
+) -> Screen[Color]:
 	print('generating bottom greenery...')
 	if land is None:
 		land = getLand(altitude = altitude)
@@ -368,7 +370,7 @@ def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
 			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
 	return result
 def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
-	filename = Path(f"bodiesOfWater_{flm(OVERWORLD_SEA_LEVEL)}_{flm(OVERWORLD_DEPTH_MAX)}_{flm(TERRAIN_NOISE_OCTAVES)}_{flm(TERRAIN_NOISE_SCALE)}_{flm(NOISE_SEED)}.json")
+	filename = Path(f"bodiesOfWater_{OVERWORLD_SEA_LEVEL}_{OVERWORLD_DEPTH_MAX}_{TERRAIN_NOISE_OCTAVES}_{TERRAIN_NOISE_SCALE}_{NOISE_SEED}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -406,6 +408,50 @@ def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return bodies
+def pushLayer(key: str,trn: Screen,arguments: dict[str,Any],function: Callable = lambda x : x) -> None:
+	items = sorted(list(arguments.items()))
+	filename = f"scrn_{key.replace(' ','_')}_{'_'.join(f"{k.replace(' ','~')}={v}" for k,v in items)}.json"
+	size = trn.size
+	content = json.dumps([function(trn[x,y]) for x in range(size) for y in range(size)])
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+def pushLayers(trn: dict[str,Screen],arguments: dict[str,dict[str,Any]],functions: dict[str,Callable] = {}) -> None:
+	for key in trn.keys():
+		pushLayer(
+			key,
+			trn[key],
+			arguments[key],
+			functions.get(key,lambda x : x),
+		)
+def pullLayer(key: str,function: Callable = lambda x : x) -> None:
+	with open(filename,mode = 'r') as f:
+		content = json.loads(f.read())
+	size = len(content[0])
+	return keyMap(
+		lambda x,y : function(content[x][y]),
+		size,
+	)
+def pullLayers(arguments: dict[str,dict[str,Any]],functions: dict[str,Callable]) -> dict[str,Screen]:
+	def parseValue(u: str) -> tuple[str,Any]:
+		k,v = u.split('=')
+		if v.lower() == 'true': return (k,True)
+		if v.lower() == 'false': return (k,False)
+		if '.' in v: return (k,float(v))
+		return (k,int(v))
+	for entry in Path('.').iterdir():
+		if entry.is_file() and entry.stem.startswith('scrn_'):
+			components = entry.stem.split('_')
+			key = components[0]
+			args = dict([parseValue(c) for c in components[1:]])
+			if 
+def clearLayers(*keys: tuple[str,...]) -> None:
+	for entry in Path('.').iterdir():
+		if entry.is_file() and (
+			len(keys) == 0 or any(
+				entry.stem.startswith(f"scr_{key}") for key in keys
+			)
+		):
+			entry.unlink()
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -424,7 +470,82 @@ def addColor(trn: dict[str,Screen]) -> None:
 				lambda v : pointToColor(v),
 				trn[k],
 			)
+def redBlueScale(value: int|float) -> Color:
+	return (
+		int(value),
+		0,
+		255 - int(value),
+	)
 
+ARGUMENTS: dict[str,dict[str,list[str]]] = {
+	'perlin noise 0' : {
+		'terrain' : [],
+		'nonterrain' : [
+			'seed',
+			'scale',
+			'octaves',
+			'gridSize',
+		],
+	},
+	'perlin noise 1' : {
+		'terrain' : [],
+		'nonterrain' : [
+			'seed',
+			'scale',
+			'octaves',
+			'gridSize',
+		],
+	},
+	'perlin noise 2' : {
+		'terrain' : [],
+		'nonterrain' : [
+			'seed',
+			'scale',
+			'octaves',
+			'gridSize',
+		],
+	},
+	'overworld surface original' : {
+		'terrain' : [
+			'perlin noise 0',
+		],
+		'nonterrain' : [
+			'overworldSurfaceMax',
+		],
+	},
+	'overworld surface scaled' : {
+		'terrain' : [
+			'overworld surface original',
+		],
+		'nonterrain' : [
+			'seaLevel',
+		],
+	},
+	'overworld depth' : {
+		'terrain' : [
+			'perlin noise 1',
+		],
+		'nonterrain' : [
+			'overworldDepthMax',
+		],
+	},
+	'midworld surface' : {
+		'terrain' : [
+			'perlin noise 2',
+		],
+		'nonterrain' : [
+			'midworldDepthMax',
+		],
+	},
+	'overworld land' : {
+		'terrain' : [
+			'overworld surface original',
+		],
+		'nonterrain' : [
+			'seaLevel',
+		],
+	},
+}
 TERRAIN: dict[str,Screen] = {}
 
 # Grid settings
@@ -466,42 +587,63 @@ def drawMap() -> None:
 				raise
 	pygame.display.flip()
 
-TERRAIN['overworld surface']: Screen[float] = (
-	perlinNoise(
-		seed = NOISE_SEED,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	) + 1
+TERRAIN['perlin noise 0'] = perlinNoise(
+	seed = NOISE_SEED,
+	scale = TERRAIN_NOISE_SCALE,
+	octaves = TERRAIN_NOISE_OCTAVES,
+)
+TERRAIN['perlin noise 1'] = perlinNoise(
+	seed = NOISE_SEED + 1,
+	scale = TERRAIN_NOISE_SCALE,
+	octaves = TERRAIN_NOISE_OCTAVES,
+)
+TERRAIN['perlin noise 2'] = perlinNoise(
+	seed = NOISE_SEED + 2,
+	scale = TERRAIN_NOISE_SCALE,
+	octaves = TERRAIN_NOISE_OCTAVES,
+)
+TERRAIN['overworld surface original']: Screen[float] = (
+	TERRAIN['perlin noise 1'] + 1
 ) * OVERWORLD_SURFACE_MAX/2
-maxv = max({v for v in TERRAIN['overworld surface']})
+maxv = max({v for v in TERRAIN['overworld surface original']})
 nmaxv = (255 + maxv)/2
 factor = (nmaxv - OVERWORLD_SEA_LEVEL)/(maxv - OVERWORLD_SEA_LEVEL)
-TERRAIN['overworld surface scaled'] = (TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL) * factor + OVERWORLD_SEA_LEVEL
+TERRAIN['overworld surface scaled'] = (TERRAIN['overworld surface original'] - OVERWORLD_SEA_LEVEL) * factor + OVERWORLD_SEA_LEVEL
 TERRAIN['overworld depth']: Screen[float] = (
-	perlinNoise(
-		seed = NOISE_SEED + 1,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	) + 1
+	TERRAIN['perlin noise 1'] + 1
 ) * OVERWORLD_DEPTH_MAX/2
 TERRAIN['midworld surface']: Screen[float] = (
-	perlinNoise(
-		seed = NOISE_SEED + 2,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	) + 1
+	TERRAIN['perlin noise 2'] + 1
 ) * MIDWORLD_SURFACE_MAX/2
-TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
+TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
 bodiesMap = getBodiesOfWater(TERRAIN['overworld land'])
 total = sum(len(b) for b in bodiesMap)
 for points in bodiesMap:
 	if len(points) <= 0.1 * total:
 		for point in points:
 			TERRAIN['overworld land'][point] = True
+colors = []
+rng = random.Random(NOISE_SEED)
+while len(colors) < len(bodiesMap):
+	c = randColor(rng)
+	if c not in colors:
+		colors.append(c)
+bodiesOfWater = {}
+for i,body in enumerate(bodiesMap):
+	for point in body:
+		bodiesOfWater[point] = colors[i]
+for i in range(GRID_SIZE):
+	for j in range(GRID_SIZE):
+		if (i,j) not in bodiesOfWater:
+			bodiesOfWater[i,j] = None
+TERRAIN['overworld bodies of water'] = keyMap(
+	lambda x,y : bodiesOfWater[x,y] if bodiesOfWater[x,y] is not None else (0,0,0),
+	GRID_SIZE,
+)
 TERRAIN['overworld surface'] = ifMap(
 	TERRAIN['overworld surface scaled'],
 	TERRAIN['overworld land'],
-	TERRAIN['overworld surface'],
+	TERRAIN['overworld surface original'],
 )
 TERRAIN['overworld true surface'] = ifMap(
 	TERRAIN['overworld surface'],
@@ -543,50 +685,50 @@ TERRAIN['overworld surface wind y'] = Screen(GRID_SIZE,0)
 for i in range(GRID_SIZE):
 	if i >= 0 and i < (1/6) * GRID_SIZE - GRID_SIZE/18:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
 	elif i >= (1/6) * GRID_SIZE - GRID_SIZE/18 and i < (1/6) * GRID_SIZE:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = 0
-			TERRAIN['overworld surface wind y'][i,j] = 0
+			TERRAIN['overworld surface wind x'][j,i] = 0
+			TERRAIN['overworld surface wind y'][j,i] = 0
 	elif i >= (1/6) * GRID_SIZE and i < (2/6) * GRID_SIZE:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
 	elif i >= (2/6) * GRID_SIZE and i < (2/6) * GRID_SIZE + GRID_SIZE/18:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = 0
-			TERRAIN['overworld surface wind y'][i,j] = 0
+			TERRAIN['overworld surface wind x'][j,i] = 0
+			TERRAIN['overworld surface wind y'][j,i] = 0
 	elif i >= (2/6) * GRID_SIZE + GRID_SIZE/18 and i < (3/6) * GRID_SIZE - GRID_SIZE/18:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
 	elif i >= (3/6) * GRID_SIZE - GRID_SIZE/18 and i < (3/6) * GRID_SIZE + GRID_SIZE/18:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = 0
-			TERRAIN['overworld surface wind y'][i,j] = 0
+			TERRAIN['overworld surface wind x'][j,i] = 0
+			TERRAIN['overworld surface wind y'][j,i] = 0
 	elif i >= (3/6) * GRID_SIZE + GRID_SIZE/18 and i < (4/6) * GRID_SIZE - GRID_SIZE/18:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
 	elif i >= (4/6) * GRID_SIZE - GRID_SIZE/18 and i < (4/6) * GRID_SIZE:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = 0
-			TERRAIN['overworld surface wind y'][i,j] = 0
+			TERRAIN['overworld surface wind x'][j,i] = 0
+			TERRAIN['overworld surface wind y'][j,i] = 0
 	elif i >= (4/6) * GRID_SIZE and i < (5/6) * GRID_SIZE:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = -MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = -MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
 	elif i >= (5/6) * GRID_SIZE and i < (5/6) * GRID_SIZE + GRID_SIZE/12:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = 0
-			TERRAIN['overworld surface wind y'][i,j] = 0
+			TERRAIN['overworld surface wind x'][j,i] = 0
+			TERRAIN['overworld surface wind y'][j,i] = 0
 	else:
 		for j in range(GRID_SIZE):
-			TERRAIN['overworld surface wind x'][i,j] = MAX_SPEED
-			TERRAIN['overworld surface wind y'][i,j] = MAX_SPEED
+			TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
+			TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
 TERRAIN['overworld surface wind x'] = (TERRAIN['overworld surface wind x'] + MAX_SPEED) * 255/(2*MAX_SPEED)
-TERRAIN['overworld surface wind Y'] = (TERRAIN['overworld surface wind Y'] + MAX_SPEED) * 255/(2*MAX_SPEED)
+TERRAIN['overworld surface wind y'] = (TERRAIN['overworld surface wind y'] + MAX_SPEED) * 255/(2*MAX_SPEED)
 TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
 TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
 TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
@@ -598,8 +740,41 @@ TERRAIN['midworld open space'] = ifMap(
 	TERRAIN['overworld-midworld connections'],
 	TERRAIN['overworld depth altitude'] - TERRAIN['midworld surface'],
 )
-TERRAIN['sunlight'] = getSunlight()
-TERRAIN['snow'] = (0.85 * (OVERWORLD_SURFACE_MAX - TERRAIN['sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
+TERRAIN['overworld sunlight'] = getSunlight()
+TERRAIN['overworld temperature'] = (TERRAIN['overworld sunlight'] + TERRAIN['overworld surface']) / 2
+TERRAIN['overworld temperature'] = TERRAIN['overworld temperature'] * (OVERWORLD_TEMPERATURE_MAX - OVERWORLD_TEMPERATURE_MIN)/255 + OVERWORLD_TEMPERATURE_MIN
+TERRAIN['overworld temperature'] = ifMap(
+	TERRAIN['overworld temperature'],
+	TERRAIN['overworld land'],
+	TERRAIN['overworld temperature'] - 6,
+)
+TERRAIN['overworld temperature'] = (TERRAIN['overworld temperature'] - OVERWORLD_TEMPERATURE_MIN) * 255/(OVERWORLD_TEMPERATURE_MAX - OVERWORLD_TEMPERATURE_MIN)
+TERRAIN['overworld temperature derivative x+'] = keyMap(
+	lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
+	GRID_SIZE,
+)
+TERRAIN['overworld temperature derivative y+'] = keyMap(
+	lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
+	GRID_SIZE,
+)
+TERRAIN['overworld temperature derivative x-'] = keyMap(
+	lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][(x - 1) % GRID_SIZE,y],
+	GRID_SIZE,
+)
+TERRAIN['overworld temperature derivative y-'] = keyMap(
+	lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][x,(y - 1) % GRID_SIZE],
+	GRID_SIZE,
+)
+TERRAIN['overworld temperature derivative x'] = (TERRAIN['overworld temperature derivative x+'] + TERRAIN['overworld temperature derivative x-'])/2
+TERRAIN['overworld temperature derivative y'] = (TERRAIN['overworld temperature derivative y+'] + TERRAIN['overworld temperature derivative y-'])/2
+maxv = max(v for v in TERRAIN['overworld temperature derivative x'])
+minv = min(v for v in TERRAIN['overworld temperature derivative x'])
+TERRAIN['overworld temperature derivative x'] = (TERRAIN['overworld temperature derivative x'] - minv) * 255/(maxv - minv)
+maxv = max(v for v in TERRAIN['overworld temperature derivative y'])
+minv = min(v for v in TERRAIN['overworld temperature derivative y'])
+TERRAIN['overworld temperature derivative y'] = (TERRAIN['overworld temperature derivative y'] - minv) * 255/(maxv - minv)
+TERRAIN['overworld temperature'] = scrMap(redBlueScale,TERRAIN['overworld temperature'])
+TERRAIN['snow'] = (0.85 * (OVERWORLD_SURFACE_MAX - TERRAIN['overworld sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
 TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
 	connected = TERRAIN['overworld-midworld connections'],
 )
@@ -636,7 +811,7 @@ TERRAIN['overworld greenery'] = getOverworldGreenery(
 	altitude = TERRAIN['overworld surface'],
 	land = TERRAIN['overworld land'],
 	snow = TERRAIN['snow'],
-	sunlight = TERRAIN['sunlight'],
+	sunlight = TERRAIN['overworld sunlight'],
 )
 TERRAIN['midworld greenery'] = getMidworldGreenery(
 	altitude = TERRAIN['midworld surface'],
@@ -644,25 +819,6 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
 )
-colors = []
-rng = random.Random(NOISE_SEED)
-while len(colors) < len(bodiesMap):
-	c = randColor(rng)
-	if c not in colors:
-		colors.append(c)
-bodiesOfWater = {}
-for i,body in enumerate(bodiesMap):
-	for point in body:
-		bodiesOfWater[point] = colors[i]
-for i in range(GRID_SIZE):
-	for j in range(GRID_SIZE):
-		if (i,j) not in bodiesOfWater:
-			bodiesOfWater[i,j] = None
-TERRAIN['overworld bodies of water'] = keyMap(
-	lambda x,y : bodiesOfWater[x,y] if bodiesOfWater[x,y] is not None else (0,0,0),
-	GRID_SIZE,
-)
-
 TERRAIN['overworld coastline'] = keyMap(
 	lambda x,y,v : v and not all(
 		TERRAIN['overworld land'][
@@ -691,9 +847,9 @@ TERRAIN['overworld cloud density'] *= 255/OVERWORLD_CLOUD_DENSITY_STRENGTH
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld surface'
-SCREEN_LAYOUT[1,0] = 'overworld surface wind x'
-SCREEN_LAYOUT[2,0] = 'overworld surface wind y'
+SCREEN_LAYOUT[0,0] = 'overworld greenery'
+SCREEN_LAYOUT[1,0] = 'overworld temperature derivative x'
+SCREEN_LAYOUT[2,0] = 'overworld temperature derivative y'
 
 mapLayout(TERRAIN)
 drawMap()
