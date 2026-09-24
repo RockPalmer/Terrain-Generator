@@ -121,7 +121,7 @@ def dn():
 	global itera
 
 	itera -= 1
-def perlinNoise(seed: int|float = 0,scale: int = 1,octaves: int = 1,size: int) -> Screen[float]:
+def perlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Screen[float]:
 	print('generating perlin noise...')
 	"""
 	Generate seamless wrapping 2D Perlin noise using 4D Perlin.
@@ -369,8 +369,8 @@ def getConnectedEdges(*,connected: Screen[bool]) -> Screen[bool]:
 		for j in range(GRID_SIZE):
 			result[i,j] = not connected[i,j] and any(connected[(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for x,y in points)
 	return result
-def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
-	filename = Path(f"bodiesOfWater_{OVERWORLD_SEA_LEVEL}_{OVERWORLD_DEPTH_MAX}_{TERRAIN_NOISE_OCTAVES}_{TERRAIN_NOISE_SCALE}_{NOISE_SEED}.json")
+def getBodiesOfWater(land: Screen[bool],seaLevel: int|float,depthMax: int|float,octaves: int,scale: int|float,seed: int,size: int) -> list[set[Point]]:
+	filename = Path(f"bodiesOfWater_{seaLevel}_{depthMax}_{octaves}_{scale}_{seed}.json")
 	if filename.is_file():
 		with open(filename,mode = 'r') as f:
 			content = f.read()
@@ -378,16 +378,16 @@ def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
 	def neighbors(p1,p2):
 		return (
 			p1[0] == p2[0] and (
-				(p1[1] + 1) % GRID_SIZE == p2[1] or
-				(p1[1] - 1) % GRID_SIZE == p2[1]
+				(p1[1] + 1) % size == p2[1] or
+				(p1[1] - 1) % size == p2[1]
 			) or p1[1] == p2[1] and (
-				(p1[0] + 1) % GRID_SIZE == p2[0] or
-				(p1[0] - 1) % GRID_SIZE == p2[0]
+				(p1[0] + 1) % size == p2[0] or
+				(p1[0] - 1) % size == p2[0]
 			)
 		)
 	def belongsTo(p,b):
 		return any(neighbors(p,pt) for pt in b)
-	points: list[Point] = [(i,j) for i in range(GRID_SIZE) for j in range(GRID_SIZE) if not land[i,j]]
+	points: list[Point] = [(i,j) for i in range(size) for j in range(size) if not land[i,j]]
 	bodies: list[set[Point]] = []
 	for point in points:
 		indices = set()
@@ -408,50 +408,6 @@ def getBodiesOfWater(land: Screen[bool]) -> list[set[Point]]:
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return bodies
-def pushLayer(key: str,trn: Screen,arguments: dict[str,Any],function: Callable = lambda x : x) -> None:
-	items = sorted(list(arguments.items()))
-	filename = f"scrn_{key.replace(' ','_')}_{'_'.join(f"{k.replace(' ','~')}={v}" for k,v in items)}.json"
-	size = trn.size
-	content = json.dumps([function(trn[x,y]) for x in range(size) for y in range(size)])
-	with open(filename,mode = 'w') as f:
-		f.write(content)
-def pushLayers(trn: dict[str,Screen],arguments: dict[str,dict[str,Any]],functions: dict[str,Callable] = {}) -> None:
-	for key in trn.keys():
-		pushLayer(
-			key,
-			trn[key],
-			arguments[key],
-			functions.get(key,lambda x : x),
-		)
-def pullLayer(key: str,function: Callable = lambda x : x) -> None:
-	with open(filename,mode = 'r') as f:
-		content = json.loads(f.read())
-	size = len(content[0])
-	return keyMap(
-		lambda x,y : function(content[x][y]),
-		size,
-	)
-def pullLayers(arguments: dict[str,dict[str,Any]],functions: dict[str,Callable]) -> dict[str,Screen]:
-	def parseValue(u: str) -> tuple[str,Any]:
-		k,v = u.split('=')
-		if v.lower() == 'true': return (k,True)
-		if v.lower() == 'false': return (k,False)
-		if '.' in v: return (k,float(v))
-		return (k,int(v))
-	for entry in Path('.').iterdir():
-		if entry.is_file() and entry.stem.startswith('scrn_'):
-			components = entry.stem.split('_')
-			key = components[0]
-			args = dict([parseValue(c) for c in components[1:]])
-			if 
-def clearLayers(*keys: tuple[str,...]) -> None:
-	for entry in Path('.').iterdir():
-		if entry.is_file() and (
-			len(keys) == 0 or any(
-				entry.stem.startswith(f"scr_{key}") for key in keys
-			)
-		):
-			entry.unlink()
 def addColor(trn: dict[str,Screen]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
@@ -480,70 +436,187 @@ def redBlueScale(value: int|float) -> Color:
 ARGUMENTS: dict[str,dict[str,list[str]]] = {
 	'perlin noise 0' : {
 		'terrain' : [],
-		'nonterrain' : [
-			'seed',
-			'scale',
-			'octaves',
-			'gridSize',
-		],
+		'nonterrain' : {
+			'NOISE_SEED' : NOISE_SEED,
+			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID_SIZE' : GRID_SIZE,
+		},
 	},
 	'perlin noise 1' : {
 		'terrain' : [],
-		'nonterrain' : [
-			'seed',
-			'scale',
-			'octaves',
-			'gridSize',
-		],
+		'nonterrain' : {
+			'NOISE_SEED' : NOISE_SEED,
+			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID_SIZE' : GRID_SIZE,
+		},
 	},
 	'perlin noise 2' : {
 		'terrain' : [],
-		'nonterrain' : [
-			'seed',
-			'scale',
-			'octaves',
-			'gridSize',
-		],
+		'nonterrain' : {
+			'NOISE_SEED' : NOISE_SEED,
+			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID_SIZE' : GRID_SIZE,
+		},
 	},
 	'overworld surface original' : {
 		'terrain' : [
 			'perlin noise 0',
 		],
-		'nonterrain' : [
-			'overworldSurfaceMax',
-		],
+		'nonterrain' : {
+			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_MAX,
+		},
 	},
 	'overworld surface scaled' : {
 		'terrain' : [
 			'overworld surface original',
 		],
-		'nonterrain' : [
-			'seaLevel',
-		],
+		'nonterrain' : {
+			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
 	},
 	'overworld depth' : {
 		'terrain' : [
 			'perlin noise 1',
 		],
-		'nonterrain' : [
-			'overworldDepthMax',
-		],
+		'nonterrain' : {
+			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
+		},
 	},
 	'midworld surface' : {
 		'terrain' : [
 			'perlin noise 2',
 		],
 		'nonterrain' : [
-			'midworldDepthMax',
+			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_MAX,
 		],
 	},
 	'overworld land' : {
 		'terrain' : [
 			'overworld surface original',
 		],
-		'nonterrain' : [
-			'seaLevel',
+		'nonterrain' : {
+			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld bodies of water' : {
+		'terrain' : [
+			'overworld land',
 		],
+		'nonterrain' : {
+			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
+			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
+			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
+			'NOISE_SEED' : NOISE_SEED,
+			'GRID_SIZE' : GRID_SIZE,
+		}
+	},
+	'overworld surface' : {
+		'terrain' : [
+			'overworld surface scaled',
+			'overworld land',
+			'overworld surface original',
+		],
+		'nonterrain' : {},
+	},
+	'overworld true surface' : {
+		'terrain' : [
+			'overworld surface',
+			'overworld land',
+		],
+		'nonterrain' : {
+			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld surface derivative x-' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative x+' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative x' : {
+		'terrain' : [
+			'overworld surface derivative x+',
+			'overworld surface derivative x-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface derivative y-' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative y+' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative y' : {
+		'terrain' : [
+			'overworld surface derivative y+',
+			'overworld surface derivative y-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal magnitude' : {
+		'terrain' : [
+			'overworld surface derivative x',
+			'overworld surface derivative y',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal x' : {
+		'terrain' : [
+			'overworld surface derivative x',
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal y' : {
+		'terrain' : [
+			'overworld surface derivative y',
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal z' : {
+		'terrain' : [
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface wind x' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+			'MAX_SPEED' : GRID_SIZE,
+		},
+	},
+	'overworld surface wind y' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+			'MAX_SPEED' : GRID_SIZE,
+		},
 	},
 }
 TERRAIN: dict[str,Screen] = {}
@@ -588,22 +661,25 @@ def drawMap() -> None:
 	pygame.display.flip()
 
 TERRAIN['perlin noise 0'] = perlinNoise(
+	size = GRID_SIZE,
 	seed = NOISE_SEED,
 	scale = TERRAIN_NOISE_SCALE,
 	octaves = TERRAIN_NOISE_OCTAVES,
 )
 TERRAIN['perlin noise 1'] = perlinNoise(
+	size = GRID_SIZE,
 	seed = NOISE_SEED + 1,
 	scale = TERRAIN_NOISE_SCALE,
 	octaves = TERRAIN_NOISE_OCTAVES,
 )
 TERRAIN['perlin noise 2'] = perlinNoise(
+	size = GRID_SIZE,
 	seed = NOISE_SEED + 2,
 	scale = TERRAIN_NOISE_SCALE,
 	octaves = TERRAIN_NOISE_OCTAVES,
 )
 TERRAIN['overworld surface original']: Screen[float] = (
-	TERRAIN['perlin noise 1'] + 1
+	TERRAIN['perlin noise 0'] + 1
 ) * OVERWORLD_SURFACE_MAX/2
 maxv = max({v for v in TERRAIN['overworld surface original']})
 nmaxv = (255 + maxv)/2
@@ -616,12 +692,30 @@ TERRAIN['midworld surface']: Screen[float] = (
 	TERRAIN['perlin noise 2'] + 1
 ) * MIDWORLD_SURFACE_MAX/2
 TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
-bodiesMap = getBodiesOfWater(TERRAIN['overworld land'])
+bodiesMap = getBodiesOfWater(
+	land = TERRAIN['overworld land'],
+	seaLevel = OVERWORLD_SEA_LEVEL,
+	depthMax = OVERWORLD_DEPTH_MAX,
+	octaves = TERRAIN_NOISE_OCTAVES,
+	scale = TERRAIN_NOISE_SCALE,
+	seed = NOISE_SEED,
+)
 total = sum(len(b) for b in bodiesMap)
 for points in bodiesMap:
 	if len(points) <= 0.1 * total:
 		for point in points:
 			TERRAIN['overworld land'][point] = True
+TERRAIN['overworld coastline'] = keyMap(
+	lambda x,y,v : v and not all(
+		TERRAIN['overworld land'][
+			(x + i) % GRID_SIZE,
+			(y + j) % GRID_SIZE,
+		] for i in range(-1,2) for j in range(-1,2)
+	),
+	TERRAIN['overworld land'],
+)
+TERRAIN['overworld coastline land side'] = TERRAIN['overworld coastline'] & TERRAIN['overworld land']
+TERRAIN['overworld coastline water side'] = TERRAIN['overworld coastline'] & ~TERRAIN['overworld land']
 colors = []
 rng = random.Random(NOISE_SEED)
 while len(colors) < len(bodiesMap):
@@ -748,6 +842,7 @@ TERRAIN['overworld temperature'] = ifMap(
 	TERRAIN['overworld land'],
 	TERRAIN['overworld temperature'] - 6,
 )
+TERRAIN['snow'] = TERRAIN['overworld temperature'] <= 0
 TERRAIN['overworld temperature'] = (TERRAIN['overworld temperature'] - OVERWORLD_TEMPERATURE_MIN) * 255/(OVERWORLD_TEMPERATURE_MAX - OVERWORLD_TEMPERATURE_MIN)
 TERRAIN['overworld temperature derivative x+'] = keyMap(
 	lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
@@ -774,7 +869,6 @@ maxv = max(v for v in TERRAIN['overworld temperature derivative y'])
 minv = min(v for v in TERRAIN['overworld temperature derivative y'])
 TERRAIN['overworld temperature derivative y'] = (TERRAIN['overworld temperature derivative y'] - minv) * 255/(maxv - minv)
 TERRAIN['overworld temperature'] = scrMap(redBlueScale,TERRAIN['overworld temperature'])
-TERRAIN['snow'] = (0.85 * (OVERWORLD_SURFACE_MAX - TERRAIN['overworld sunlight']) + TERRAIN['overworld surface'])/2 > SNOW_LEVEL
 TERRAIN['overworld-midworld connection edges'] = getConnectedEdges(
 	connected = TERRAIN['overworld-midworld connections'],
 )
@@ -818,15 +912,6 @@ TERRAIN['midworld greenery'] = getMidworldGreenery(
 	land = TERRAIN['midworld land'],
 	connected = TERRAIN['overworld-midworld connections'],
 	water = TERRAIN['midworld water'],
-)
-TERRAIN['overworld coastline'] = keyMap(
-	lambda x,y,v : v and not all(
-		TERRAIN['overworld land'][
-			(x + i) % GRID_SIZE,
-			(y + j) % GRID_SIZE,
-		] for i in range(-1,2) for j in range(-1,2)
-	),
-	TERRAIN['overworld land'],
 )
 TERRAIN['overworld cloud density'] = keyMap(
 	lambda x,y : OVERWORLD_CLOUD_DENSITY_STRENGTH*e**(
