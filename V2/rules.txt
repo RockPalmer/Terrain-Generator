@@ -1,3 +1,375 @@
-(HUNGER > FOOD) => FOOD++
-(THIRST > WATER) => WATER++
-(LUST > SEX) => SEX++
+ARGS: dict[str,dict] = {
+	'perlin noise 0' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'NOISE~SEED' : NOISE_SEED,
+			'TERRAIN~NOISE~SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN~NOISE~OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'perlin noise 1' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'NOISE~SEED' : NOISE_SEED,
+			'TERRAIN~NOISE~SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN~NOISE~OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'perlin noise 2' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'NOISE~SEED' : NOISE_SEED,
+			'TERRAIN~NOISE~SCALE' : TERRAIN_NOISE_SCALE,
+			'TERRAIN~NOISE~OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface original' : {
+		'terrain' : [
+			'perlin noise 0',
+		],
+		'nonterrain' : {
+			'OVERWORLD~SURFACE~MAX' : OVERWORLD_SURFACE_MAX,
+		},
+	},
+	'overworld surface scaled' : {
+		'terrain' : [
+			'overworld surface original',
+		],
+		'nonterrain' : {
+			'OVERWORLD~SEA~LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld depth' : {
+		'terrain' : [
+			'perlin noise 1',
+		],
+		'nonterrain' : {
+			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
+		},
+	},
+	'midworld surface' : {
+		'terrain' : [
+			'perlin noise 2',
+		],
+		'nonterrain' : {
+			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_MAX,
+		},
+	},
+	'overworld land' : {
+		'terrain' : [
+			'overworld surface original',
+		],
+		'nonterrain' : {
+			'OVERWORLD~SEA~LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld bodies of water' : {
+		'terrain' : [
+			'overworld land',
+		],
+		'nonterrain' : {
+			'OVERWORLD~SEA~LEVEL' : OVERWORLD_SEA_LEVEL,
+			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
+			'TERRAIN~NOISE~OCTAVES' : TERRAIN_NOISE_OCTAVES,
+			'TERRAIN~NOISE~SCALE' : TERRAIN_NOISE_SCALE,
+			'NOISE~SEED' : NOISE_SEED,
+			'GRID~SIZE' : GRID_SIZE,
+		}
+	},
+	'overworld surface' : {
+		'terrain' : [
+			'overworld surface scaled',
+			'overworld land',
+			'overworld surface original',
+		],
+		'nonterrain' : {},
+	},
+	'overworld true surface' : {
+		'terrain' : [
+			'overworld surface',
+			'overworld land',
+		],
+		'nonterrain' : {
+			'OVERWORLD~SEA~LEVEL' : OVERWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld surface derivative x-' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative x+' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative x' : {
+		'terrain' : [
+			'overworld surface derivative x+',
+			'overworld surface derivative x-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface derivative y-' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative y+' : {
+		'terrain' : [
+			'overworld true surface',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld surface derivative y' : {
+		'terrain' : [
+			'overworld surface derivative y+',
+			'overworld surface derivative y-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal magnitude' : {
+		'terrain' : [
+			'overworld surface derivative x',
+			'overworld surface derivative y',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal x' : {
+		'terrain' : [
+			'overworld surface derivative x',
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal y' : {
+		'terrain' : [
+			'overworld surface derivative y',
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface normal z' : {
+		'terrain' : [
+			'overworld surface normal magnitude',
+		],
+		'nonterrain' : {},
+	},
+	'overworld surface wind x' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+			'MAX_SPEED' : GRID_SIZE,
+		},
+	},
+	'overworld surface wind y' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+			'MAX_SPEED' : GRID_SIZE,
+		},
+	},
+	'midworld land' : {
+		'terrain' : [
+			'midworld surface',
+		],
+		'nonterrain' : {
+			'MIDWORLD_SEA_LEVEL' : MIDWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld depth altitude' : {
+		'terrain' : [
+			'overworld depth',
+		],
+		'nonterrain' : {
+			'OVERWORLD_DEPTH_OVERLAP_HEIGHT' : OVERWORLD_DEPTH_OVERLAP_HEIGHT,
+			'MIDWORLD_ALTITUDE_OVERLAP_HEIGHT' : MIDWORLD_ALTITUDE_OVERLAP_HEIGHT,
+		},
+	},
+	'overworld thickness' : {
+		'terrain' : [
+			'overworld surface',
+			'overworld depth',
+		],
+		'nonterrain' : {},
+	},
+	'overworld-midworld connections' : {
+		'terrain' : [
+			'midworld surface',
+			'overworld depth altitude',
+		],
+		'nonterrain' : {},
+	},
+	'midworld open space' : {
+		'terrain' : [
+			'overworld-midworld connections',
+			'overworld depth altitude',
+			'midworld surface',
+		],
+		'nonterrain' : {},
+	},
+	'overworld sunlight' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+			'OVERWORLD_SUNLIGHT_MAX' : OVERWORLD_SUNLIGHT_MAX,
+			'OVERWORLD_SUNLIGHT_MIN' : OVERWORLD_SUNLIGHT_MIN,
+			'AXIS_TILT' : AXIS_TILT,
+		},
+	},
+	'overworld temperature' : {
+		'terrain' : [
+			'overworld sunlight',
+			'overworld surface',
+			'overworld land',
+		],
+		'nonterrain' : {
+			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_MIN,
+			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_MAX,
+			'OVERWORLD_TEMPERATURE_LAND_DIFFERENCE' : OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
+		},
+	},
+	'snow' : {
+		'terrain' : [
+			'overworld temperature',
+		],
+		'nonterrain' : {
+			'SNOW_LEVEL' : SNOW_LEVEL,
+		},
+	},
+	'overworld temperature derivative x+' : {
+		'terrain' : [
+			'overworld temperature',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld temperature derivative x-' : {
+		'terrain' : [
+			'overworld temperature',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld temperature derivative y+' : {
+		'terrain' : [
+			'overworld temperature',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld temperature derivative y-' : {
+		'terrain' : [
+			'overworld temperature',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld temperature derivative x' : {
+		'terrain' : [
+			'overworld temperature derivative x+',
+			'overworld temperature derivative x-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld temperature derivative y' : {
+		'terrain' : [
+			'overworld temperature derivative y+',
+			'overworld temperature derivative y-',
+		],
+		'nonterrain' : {},
+	},
+	'overworld-midworld connection edges' : {
+		'terrain' : [
+			'overworld-midworld connections',
+		],
+		'nonterrain' : {},
+	},
+	'potential midworld water' : {
+		'terrain' : [
+			'midworld land',
+			'overworld-midworld connections',
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+	'midworld water' : {
+		'terrain' : [
+			'potential midworld water',
+			'overworld thickness',
+			'midworld surface',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+			'OVERWORLD_THICKNESS_MAX' : OVERWORLD_THICKNESS_MAX,
+			'MIDWORLD_WATER_FACTOR' : MIDWORLD_WATER_FACTOR,
+		},
+	},
+	'overworld greenery' : {
+		'terrain' : [
+			'snow',
+			'overworld surface',
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+	'midworld greenery' : {
+		'terrain' : [
+			'overworld-midworld connections',
+			'midworld surface',
+			'midworld water',
+			'midworld land',
+		],
+		'nonterrain' : {
+			'MIDWORLD_SEA_LEVEL' : MIDWORLD_SEA_LEVEL,
+		},
+	},
+	'overworld cloud density' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'OVERWORLD_CLOUD_DENSITY_STRENGTH' : OVERWORLD_CLOUD_DENSITY_STRENGTH,
+			'OVERWORLD_CLOUD_DENSITY_WIDTH' : OVERWORLD_CLOUD_DENSITY_WIDTH,
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld coastline' : {
+		'terrain' : [
+			'overworld land',
+		],
+		'nonterrain' : {
+			'GRID~SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld coastline land side' : {
+		'terrain' : [
+			'overworld coastline',
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+	'overworld coastline water side' : {
+		'terrain' : [
+			'overworld coastline',
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+}

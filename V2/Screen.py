@@ -165,6 +165,22 @@ class Screen(Generic[T]):
 							self[x,y] = value
 				else: raise KeyError
 			case _: raise KeyError
+	def scale(self,*args) -> Screen:
+		match len(args):
+			case 4: (minv1,maxv1,minv2,maxv2) = args
+			case 2:
+				vals = {v for v in self}
+				minv1 = min(vals)
+				maxv1 = max(vals)
+				(minv2,maxv2) = args
+			case _: raise ValueError
+		diff1 = maxv1 - minv1
+		diff2 = maxv2 - minv2
+		return ((self - minv1) * diff2/diff1) + minv2
+	def max(self):
+		return max({v for v in self})
+	def min(self):
+		return max({v for v in self})
 	def __and__(self,other: Any) -> Screen:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
@@ -396,6 +412,58 @@ class Screen(Generic[T]):
 				self,
 			)
 		return NotImplemented
+	def __lshift__(self,other: Any) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u << v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u << other,
+				self,
+			)
+		return NotImplemented
+	def __rlshift__(self,other) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u << v,
+				other,
+				self,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : other << u,
+				self,
+			)
+		return NotImplemented
+	def __rshift__(self,other: Any) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u >> v,
+				self,
+				other,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : u >> other,
+				self,
+			)
+		return NotImplemented
+	def __rrshift__(self,other) -> Screen:
+		if isinstance(other,Screen) and self.size == other.size:
+			return scrMap(
+				lambda u,v : u >> v,
+				other,
+				self,
+			)
+		if not isinstance(other,Screen):
+			return scrMap(
+				lambda u : other >> u,
+				self,
+			)
+		return NotImplemented
 	def __neg__(self) -> Screen:
 		return scrMap(
 			lambda v : -v,
@@ -414,6 +482,11 @@ class Screen(Generic[T]):
 	def __abs__(self) -> Screen:
 		return scrMap(
 			lambda v : abs(v),
+			self,
+		)
+	def isNone(self) -> bool:
+		return scrMap(
+			lambda v : v is None,
 			self,
 		)
 	def __eq__(self,other) -> Screen:
