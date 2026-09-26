@@ -6,84 +6,69 @@ class Interval:
 		self.max = max
 	def __add__(self,other) -> Interval:
 		if isinstance(other,Interval):
-			return Interval(
-				self.min + other.min,
-				self.max + other.max,
-			)
+			return (self + other.min) | (self + other.max)
 		return Interval(
 			self.min + other,
 			self.max + other,
 		)
+	def __radd__(self,other) -> Interval:
+		return self + other
 	def __sub__(self,other) -> Interval:
-		if isinstance(other,Interval):
-			return Interval(
-				self.min - other.max,
-				self.max - other.min,
-			)
-		return Interval(
-			self.min - other,
-			self.max - other,
-		)
+		return self + -other
+	def __rsub__(self,other) -> Interval:
+		return -self + other
 	def __mul__(self,other) -> Interval:
 		if isinstance(other,Interval):
+			return (self * other.min) | (self * other.max)
+		if other < 0:
 			return Interval(
-				self.min * other.min,
-				self.max * other.max,
-			)
+				self.max,
+				self.min,
+			) * -other
 		return Interval(
 			self.min * other,
 			self.max * other,
 		)
+	def __rmul__(self,other) -> Interval:
+		return self * other
 	def __truediv__(self,other) -> Interval:
-		if isinstance(other,Interval):
-			return Interval(
-				self.min / other.max,
-				self.max / other.min,
-			)
-		return Interval(
-			self.min / other,
-			self.max / other,
-		)
+		return self * (1/other)
 	def __rtruediv__(self,other) -> Interval:
 		if isinstance(other,Interval):
 			return NotImplemented
+		if other < 0:
+			return -other / Interval(
+				self.max,
+				self.min,
+			)
 		return Interval(
 			other / self.max,
 			other / self.min,
 		)
 	def __pow__(self,other) -> Interval:
 		if isinstance(other,Interval):
-			values = {
-				self.min ** other.min,
-				self.min ** other.max,
-				self.max ** other.min,
-				self.max ** other.max,
-			}
-			return Interval(
-				min(values),
-				max(values),
-			)
-		values = {
+			return (self ** other.min) | (self ** other.max)
+		if other % 2 == 0:
+			if self.max < 0 and self.min < 0:
+				return Interval(
+					self.max,
+					self.min,
+				) ** other
+			if self.max >= 0 and self.min < 0:
+				return Interval(
+					0,
+					max(self.max,abs(self.min))
+				) ** other
+		return Interval(
 			self.min ** other,
 			self.max ** other,
-		}
-		return Interval(
-			min(values),
-			max(values),
-		)
-	def __rpow__(self,other) -> Interval:
-		if isinstance(other,Interval):
-			return NotImplemented
-		values = {other ** self.min,other ** self.max}
-		return Interval(
-			min(values),
-			max(values),
 		)
 	def __or__(self,other) -> Interval:
-		return Interval(
-			min(self.min,other.min),
-			max(self.max,other.max),
-		)
+		if isinstance(other,Interval):
+			return Interval(
+				min(self.min,other.min),
+				max(self.max,other.max),
+			)
 		if other < self.min:
 			return Interval(
 				other,
@@ -111,5 +96,9 @@ class Interval:
 	def __abs__(self) -> Interval:
 		return Interval(
 			0,
-			abs(self.min,self.max)
+			max(abs(self.min),abs(self.max))
 		)
+	def __repr__(self) -> str:
+		return f"Interval({self.min},{self.max})"
+	def __str__(self) -> str:
+		return repr(self)
