@@ -9,19 +9,11 @@ from Screen import (
 from math import (
 	cos,
 	sin,
-	tan,
 	tau,
 	e,
-	floor,
-	ceil,
 )
 from pathlib import Path
-from numpy import (
-	array,
-	dot,
-)
-from numpy.linalg import norm
-from itertools import product
+from numpy import array
 from functools import reduce
 from operator import or_
 from typing import (
@@ -29,9 +21,6 @@ from typing import (
 	Any,
 )
 from Dropdown import Dropdown
-
-SCREEN_LAYOUT = {}
-FINAL_SCREEN_LAYOUT = []
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
@@ -74,7 +63,7 @@ TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 0
 AXIS_TILT: float = 23.44 * tau/360
 HUMIDITY_SMUDGE_RADIUS: int = 7
-UI_PANEL_WIDTH: int = 400
+UI_PANEL_WIDTH: int = 500
 UI_PANEL_MARGIN: int = 20
 NUM_CONTINENTS: int = 12
 NUM_CONTINENT_RUNS: int = 5
@@ -489,6 +478,8 @@ ARGS: dict[str,dict] = {
 }
 ARGUMENTS: dict = {name : getArguments(name,ARGS) for name in ARGS}
 
+RANGES: dict[str,array[int|float]] = {}
+
 itera = 0
 
 def prt(v):
@@ -547,24 +538,6 @@ def getMaxX(layout: dict[Point,str]) -> int:
 	return max(x for x,_ in layout.keys())
 def getMaxY(layout: dict[Point,str]) -> int:
 	return max(y for _,y in layout.keys())
-def mapLayout(trn: dict[str,Screen]) -> None:
-	global SCREEN_LAYOUT,FINAL_SCREEN_LAYOUT
-
-	MAX_X = (getMaxX(SCREEN_LAYOUT) + 1) * GRID_SIZE
-	MAX_Y = (getMaxY(SCREEN_LAYOUT) + 1) * GRID_SIZE
-
-	FINAL_SCREEN_LAYOUT = [[None for i in range(MAX_Y)] for j in range(MAX_X)]
-
-	covered = set()
-
-	for (x,y),k in SCREEN_LAYOUT.items():
-		for i in range(GRID_SIZE):
-			for j in range(GRID_SIZE):
-				covered.add((
-					x * GRID_SIZE + i,
-					y * GRID_SIZE + j,
-				))
-				FINAL_SCREEN_LAYOUT[x * GRID_SIZE + i][y * GRID_SIZE + j] = trn[k][i,j]
 def getDistance(p1: Point, p2: Point) -> float:
 	dx = abs(p1[0] - p2[0])
 	dy = abs(p1[1] - p2[1])
@@ -754,6 +727,7 @@ if 'perlin noise 0' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	RANGES['perlin noise 0'] = array([-1,1])
 if 'perlin noise 1' not in TERRAIN:
 	TERRAIN['perlin noise 1']: Screen[float] = perlinNoise(
 		size = GRID_SIZE,
@@ -761,6 +735,7 @@ if 'perlin noise 1' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	RANGES['perlin noise 1'] = array([-1,1])
 if 'perlin noise 2' not in TERRAIN:
 	TERRAIN['perlin noise 2']: Screen[float] = perlinNoise(
 		size = GRID_SIZE,
@@ -768,14 +743,17 @@ if 'perlin noise 2' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	RANGES['perlin noise 2'] = array([-1,1])
 if 'overworld surface original' not in TERRAIN:
 	TERRAIN['overworld surface original']: Screen[float] = (
 		TERRAIN['perlin noise 0'] + 1
 	) * OVERWORLD_SURFACE_MAX/2
+	RANGES['overworld surface original'] = (RANGES['perlin noise 0'] + array([1,1])) * OVERWORLD_SURFACE_MAX/2
 if 'overworld surface scaled' not in TERRAIN:
 	maxv = TERRAIN['overworld surface original'].max()
 	nmaxv = (255 + maxv)/2
 	TERRAIN['overworld surface scaled']: Screen[float] = (TERRAIN['overworld surface original'] - OVERWORLD_SEA_LEVEL) * nmaxv/maxv + OVERWORLD_SEA_LEVEL
+	RANGES['overworld surface scaled'] = RANGES['overworld surface original']
 if 'overworld depth' not in TERRAIN:
 	TERRAIN['overworld depth']: Screen[float] = (
 		TERRAIN['perlin noise 1'] + 1
@@ -836,6 +814,15 @@ if 'overworld surface' not in TERRAIN:
 		TERRAIN['overworld land'],
 		TERRAIN['overworld surface original'],
 	)
+	RANGES['overworld surface'] = array([
+		min(
+			RANGES['overworld surface scaled'],
+			RANGES['overworld surface original'],
+		),max(
+			RANGES['overworld surface scaled'],
+			RANGES['overworld surface original'],
+		),
+	])
 if 'overworld true surface' not in TERRAIN:
 	TERRAIN['overworld true surface']: Screen[float] = ifMap(
 		TERRAIN['overworld surface'],
@@ -973,9 +960,16 @@ if 'overworld sunlight' not in TERRAIN:
 		sunlightMin = OVERWORLD_SUNLIGHT_MIN,
 		tilt = AXIS_TILT,
 	)
+if 'overworld distance from sea level' not in TERRAIN:
+	TERRAIN['overworld distance from sea level']: Screen[float] = abs(TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL)
+	RANGES['overworld distance from sea level'] = array([0,max(
+		RANGES['overworld surface'][1] - OVERWORLD_SEA_LEVEL,
+		OVERWORLD_SEA_LEVEL - RANGES['overworld surface'][0],
+	)])
 if 'overworld temperature' not in TERRAIN:
-	TERRAIN['overworld temperature']: Screen[float] = (TERRAIN['overworld sunlight'] + TERRAIN['overworld surface']) / 2
-	TERRAIN['overworld temperature']: Screen[float] = TERRAIN['overworld temperature'] * (OVERWORLD_TEMPERATURE_MAX - OVERWORLD_TEMPERATURE_MIN)/GRID_SIZE + OVERWORLD_TEMPERATURE_MIN
+	TERRAIN['overworld temperature']: Screen[float] = (TERRAIN['overworld sunlight'] + TERRAIN['distance from sea level']) * (
+		(OVERWORLD_TEMPERATURE_MAX - OVERWORLD_TEMPERATURE_MIN)/GRID_SIZE + OVERWORLD_TEMPERATURE_MIN
+	)/2
 	TERRAIN['overworld temperature']: Screen[float] = ifMap(
 		TERRAIN['overworld temperature'],
 		TERRAIN['overworld land'],
@@ -1125,45 +1119,15 @@ CLOCK = pygame.time.Clock()
 
 font = pygame.font.SysFont("Arial",20)
 
-def drawMap(window,width,height) -> None:
-	global pygame,FINAL_SCREEN_LAYOUT,SCREEN_LAYOUT
-
-	covered = set()
-	for x in range(len(FINAL_SCREEN_LAYOUT)):
-		for y in range(len(FINAL_SCREEN_LAYOUT[x])):
-			covered.add((x,y))
-			rect = pygame.Rect(
-				x * CELL_SIZE,
-				y * CELL_SIZE,
-				CELL_SIZE,
-				CELL_SIZE,
-			)
-			try:
-				pygame.draw.rect(window,FINAL_SCREEN_LAYOUT[x][y],rect)
-			except:
-				print(FINAL_SCREEN_LAYOUT[x][y])
-				raise
-
 TERRAIN['overworld greenery'] = scrMap(intToColor,TERRAIN['overworld greenery'])
 TERRAIN['midworld greenery'] = scrMap(intToColor,TERRAIN['midworld greenery'])
 
 addColor(TERRAIN)
 
-SCREEN_LAYOUT[0,0] = 'overworld greenery'
-SCREEN_LAYOUT[1,0] = 'overworld temperature derivative x'
-SCREEN_LAYOUT[2,0] = 'overworld temperature derivative y'
-
-mapLayout(TERRAIN)
-
-#W = (getMaxX(SCREEN_LAYOUT) + 1)*LENGTH
-#H = (getMaxY(SCREEN_LAYOUT) + 1)*LENGTH
-W = LENGTH
-H = LENGTH
-
-WINDOW = pygame.display.set_mode((W + UI_PANEL_WIDTH,H))
+WINDOW = pygame.display.set_mode((LENGTH + UI_PANEL_WIDTH,LENGTH))
 pygame.display.set_caption("Window")
 DROPDOWN = Dropdown(
-	x = W + UI_PANEL_MARGIN,
+	x = LENGTH + UI_PANEL_MARGIN,
 	y = UI_PANEL_MARGIN,
 	width = UI_PANEL_WIDTH - 2 * UI_PANEL_MARGIN,
 	height = 40,
@@ -1177,7 +1141,7 @@ while running:
 		if event.type == pygame.QUIT:
 			running = False
 		DROPDOWN.handle_event(event)
-	ui_panel = pygame.Rect(W,0,UI_PANEL_WIDTH,H)
+	ui_panel = pygame.Rect(LENGTH,0,UI_PANEL_WIDTH,LENGTH)
 	pygame.draw.rect(WINDOW,UI_RECT_COLOR,ui_panel)
 	for i in range(GRID_SIZE):
 		for j in range(GRID_SIZE):
