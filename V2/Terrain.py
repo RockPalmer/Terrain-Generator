@@ -79,7 +79,7 @@ MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_
 OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
 OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 OVERWORLD_TEMPERATURE_LAND_DIFFERENCE: int = 6
-SNOW_LEVEL: int = 50
+SNOW_LEVEL: int = 60
 
 OVERWORLD_TEMPERATURE_MIN: float = OVERWORLD_TEMPERATURE_RANGE[0]
 OVERWORLD_TEMPERATURE_MAX: float = OVERWORLD_TEMPERATURE_RANGE[1]
@@ -138,13 +138,11 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_MAX,
 		},
 	},
-	'overworld surface scaled' : {
+	'overworld surface fluctuation' : {
 		'terrain' : [
 			'overworld surface original',
 		],
-		'nonterrain' : {
-			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
-		},
+		'nonterrain' : {},
 	},
 	'overworld depth' : {
 		'terrain' : [
@@ -185,9 +183,8 @@ ARGS: dict[str,dict] = {
 	},
 	'overworld surface' : {
 		'terrain' : [
-			'overworld surface scaled',
-			'overworld land',
 			'overworld surface original',
+			'overworld surface fluctuation',
 		],
 		'nonterrain' : {},
 	},
@@ -200,7 +197,7 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
 		},
 	},
-	'overworld surface derivative x-' : {
+	'overworld true surface derivative x-' : {
 		'terrain' : [
 			'overworld true surface',
 		],
@@ -208,7 +205,7 @@ ARGS: dict[str,dict] = {
 			'GRID_SIZE' : GRID_SIZE,
 		},
 	},
-	'overworld surface derivative x+' : {
+	'overworld true surface derivative x+' : {
 		'terrain' : [
 			'overworld true surface',
 		],
@@ -216,14 +213,14 @@ ARGS: dict[str,dict] = {
 			'GRID_SIZE' : GRID_SIZE,
 		},
 	},
-	'overworld surface derivative x' : {
+	'overworld true surface derivative x' : {
 		'terrain' : [
-			'overworld surface derivative x+',
-			'overworld surface derivative x-',
+			'overworld true surface derivative x+',
+			'overworld true surface derivative x-',
 		],
 		'nonterrain' : {},
 	},
-	'overworld surface derivative y-' : {
+	'overworld true surface derivative y-' : {
 		'terrain' : [
 			'overworld true surface',
 		],
@@ -231,7 +228,7 @@ ARGS: dict[str,dict] = {
 			'GRID_SIZE' : GRID_SIZE,
 		},
 	},
-	'overworld surface derivative y+' : {
+	'overworld true surface derivative y+' : {
 		'terrain' : [
 			'overworld true surface',
 		],
@@ -239,30 +236,30 @@ ARGS: dict[str,dict] = {
 			'GRID_SIZE' : GRID_SIZE,
 		},
 	},
-	'overworld surface derivative y' : {
+	'overworld true surface derivative y' : {
 		'terrain' : [
-			'overworld surface derivative y+',
-			'overworld surface derivative y-',
+			'overworld true surface derivative y+',
+			'overworld true surface derivative y-',
 		],
 		'nonterrain' : {},
 	},
 	'overworld surface normal magnitude' : {
 		'terrain' : [
-			'overworld surface derivative x',
-			'overworld surface derivative y',
+			'overworld true surface derivative x',
+			'overworld true surface derivative y',
 		],
 		'nonterrain' : {},
 	},
 	'overworld surface normal x' : {
 		'terrain' : [
-			'overworld surface derivative x',
+			'overworld true surface derivative x',
 			'overworld surface normal magnitude',
 		],
 		'nonterrain' : {},
 	},
 	'overworld surface normal y' : {
 		'terrain' : [
-			'overworld surface derivative y',
+			'overworld true surface derivative y',
 			'overworld surface normal magnitude',
 		],
 		'nonterrain' : {},
@@ -272,20 +269,6 @@ ARGS: dict[str,dict] = {
 			'overworld surface normal magnitude',
 		],
 		'nonterrain' : {},
-	},
-	'overworld surface wind x' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'MAX_SPEED' : GRID_SIZE,
-		},
-	},
-	'overworld surface wind y' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'MAX_SPEED' : GRID_SIZE,
-		},
 	},
 	'midworld land' : {
 		'terrain' : [
@@ -731,6 +714,17 @@ def loadTerrain(filename: Path) -> dict[str,list|dict]:
 	with open(filename,mode = 'r') as f:
 		content = json.loads(f.read())
 	return content
+def getDependentTerrains(name: str) -> set[str]:
+	args = set()
+	for k,v in ARGS.items():
+		if name in v['terrain']:
+			args.add(k)
+			args |= getDependentTerrains(k)
+	return args
+def cleanMapping(name: str,terrain: dict[str,Screen]) -> None:
+	for n in getDependentTerrains(name):
+		if n in terrain:
+			del terrain[n]
 
 TERRAIN = loadTerrainValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
@@ -742,6 +736,7 @@ if 'perlin noise 0' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	cleanMapping('perlin noise 0',TERRAIN)
 RANGE['perlin noise 0'] = Interval(-1,1)
 if 'perlin noise 1' not in TERRAIN:
 	TERRAIN['perlin noise 1']: Screen[float] = perlinNoise(
@@ -750,6 +745,7 @@ if 'perlin noise 1' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	cleanMapping('perlin noise 1',TERRAIN)
 RANGE['perlin noise 1'] = Interval(-1,1)
 if 'perlin noise 2' not in TERRAIN:
 	TERRAIN['perlin noise 2']: Screen[float] = perlinNoise(
@@ -758,20 +754,46 @@ if 'perlin noise 2' not in TERRAIN:
 		scale = TERRAIN_NOISE_SCALE,
 		octaves = TERRAIN_NOISE_OCTAVES,
 	)
+	cleanMapping('perlin noise 2',TERRAIN)
 RANGE['perlin noise 2'] = Interval(-1,1)
 if 'overworld surface original' not in TERRAIN:
 	TERRAIN['overworld surface original']: Screen[float] = TERRAIN['perlin noise 0'].scale(-1,1,OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
+	cleanMapping('overworld surface original',TERRAIN)
 RANGE['overworld surface original'] = Interval(OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
-if 'overworld surface scaled' not in TERRAIN:
-	maxv = TERRAIN['overworld surface original'].max()
-	nmaxv = (255 + maxv)/2
-	TERRAIN['overworld surface scaled']: Screen[float] = (TERRAIN['overworld surface original'] - OVERWORLD_SEA_LEVEL) * nmaxv/maxv + OVERWORLD_SEA_LEVEL
-RANGE['overworld surface scaled'] = RANGE['overworld surface original']
+if 'overworld surface fluctuation' not in TERRAIN:
+	TERRAIN['overworld surface fluctuation']: Screen[float] = keyMap(
+		lambda x,y : (
+			(
+				TERRAIN['overworld surface original'][(x + 1) % GRID_SIZE,(y + 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][(x + 1) % GRID_SIZE,(y - 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][x,(y - 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][(x - 1) % GRID_SIZE,(y + 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][(x - 1) % GRID_SIZE,y] - TERRAIN['overworld surface original'][x,y] +
+				TERRAIN['overworld surface original'][(x - 1) % GRID_SIZE,(y - 1) % GRID_SIZE] - TERRAIN['overworld surface original'][x,y]
+			)/8
+		),
+		GRID_SIZE,
+	).scale(0,1)
+	cleanMapping('overworld surface fluctuation',TERRAIN)
+RANGE['overworld surface fluctuation'] = Interval(0,1)
+if 'overworld surface' not in TERRAIN:
+	TERRAIN['overworld surface']: Screen[float] = (
+		(
+			TERRAIN['overworld surface original'] - OVERWORLD_SEA_LEVEL
+		) * (
+			1 + TERRAIN['overworld surface fluctuation']
+		) + OVERWORLD_SEA_LEVEL
+	).scale(0,255)
+RANGE['overworld surface'] = RANGE['overworld surface original']
 if 'overworld depth' not in TERRAIN:
 	TERRAIN['overworld depth']: Screen[float] = TERRAIN['perlin noise 1'].scale(-1,1,OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
+	cleanMapping('overworld depth',TERRAIN)
 RANGE['overworld depth'] = Interval(OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
 if 'midworld surface' not in TERRAIN:
 	TERRAIN['midworld surface']: Screen[float] = TERRAIN['perlin noise 2'].scale(-1,1,MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
+	cleanMapping('midworld surface',TERRAIN)
 RANGE['midworld surface'] = Interval(MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
 if 'overworld land' not in TERRAIN:
 	TERRAIN['overworld land']: Screen[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
@@ -789,6 +811,7 @@ if 'overworld land' not in TERRAIN:
 		if len(points) <= 0.1 * total:
 			for point in points:
 				TERRAIN['overworld land'][point] = True
+	cleanMapping('overworld land',TERRAIN)
 if 'overworld coastline land side' not in TERRAIN:
 	TERRAIN['overworld coastline land side']: Screen[bool] = keyMap(
 		lambda x,y,v : v and not all(
@@ -799,6 +822,7 @@ if 'overworld coastline land side' not in TERRAIN:
 		),
 		TERRAIN['overworld land'],
 	)
+	cleanMapping('overworld coastline land side',TERRAIN)
 if 'overworld coastline water side' not in TERRAIN:
 	TERRAIN['overworld coastline water side']: Screen[bool] = keyMap(
 		lambda x,y,v : not v and any(
@@ -809,8 +833,10 @@ if 'overworld coastline water side' not in TERRAIN:
 		),
 		TERRAIN['overworld land'],
 	)
+	cleanMapping('overworld coastline water side',TERRAIN)
 if 'overworld coastline' not in TERRAIN:
 	TERRAIN['overworld coastline'] = TERRAIN['overworld coastline land side'] | TERRAIN['overworld coastline water side']
+	cleanMapping('overworld coastline',TERRAIN)
 if 'overworld bodies of water' not in TERRAIN:
 	colors = []
 	rng = random.Random(NOISE_SEED)
@@ -827,153 +853,90 @@ if 'overworld bodies of water' not in TERRAIN:
 		TERRAIN['overworld bodies of water'].isNone(),
 		TERRAIN['overworld bodies of water'],
 	)
+	cleanMapping('overworld bodies of water',TERRAIN)
 RANGE['overworld bodies of water'] = Interval(0,255 << 16)
-if 'overworld surface' not in TERRAIN:
-	TERRAIN['overworld surface']: Screen[float] = ifMap(
-		TERRAIN['overworld surface scaled'],
-		TERRAIN['overworld land'],
-		TERRAIN['overworld surface original'],
-	)
-RANGE['overworld surface'] = RANGE['overworld surface scaled'] | RANGE['overworld surface original']
+RANGE['overworld surface'] = RANGE['overworld surface original']
 if 'overworld true surface' not in TERRAIN:
 	TERRAIN['overworld true surface']: Screen[float] = ifMap(
 		TERRAIN['overworld surface'],
 		TERRAIN['overworld land'],
 		OVERWORLD_SEA_LEVEL,
 	)
+	cleanMapping('overworld true surface',TERRAIN)
 RANGE['overworld true surface'] = RANGE['overworld surface'] | OVERWORLD_SEA_LEVEL
-if 'overworld surface derivative x-' not in TERRAIN:
-	TERRAIN['overworld surface derivative x-']: Screen[float] = keyMap(
+if 'overworld true surface derivative x-' not in TERRAIN:
+	TERRAIN['overworld true surface derivative x-']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y],
 		GRID_SIZE,
 	)
-RANGE['overworld surface derivative x-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld surface derivative x+' not in TERRAIN:
-	TERRAIN['overworld surface derivative x+']: Screen[float] = keyMap(
+	cleanMapping('overworld true surface derivative x-',TERRAIN)
+RANGE['overworld true surface derivative x-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
+if 'overworld true surface derivative x+' not in TERRAIN:
+	TERRAIN['overworld true surface derivative x+']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][x,y],
 		GRID_SIZE,
 	)
-RANGE['overworld surface derivative x+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld surface derivative x' not in TERRAIN:
-	TERRAIN['overworld surface derivative x']: Screen[float] = (TERRAIN['overworld surface derivative x-'] + TERRAIN['overworld surface derivative x+']) / 2
-RANGE['overworld surface derivative x'] = (RANGE['overworld surface derivative x-'] + RANGE['overworld surface derivative x+']) / 2
-if 'overworld surface derivative y-' not in TERRAIN:
-	TERRAIN['overworld surface derivative y-']: Screen[float] = keyMap(
+	cleanMapping('overworld true surface derivative x+',TERRAIN)
+RANGE['overworld true surface derivative x+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
+if 'overworld true surface derivative x' not in TERRAIN:
+	TERRAIN['overworld true surface derivative x']: Screen[float] = (TERRAIN['overworld true surface derivative x-'] + TERRAIN['overworld true surface derivative x+']) / 2
+	cleanMapping('overworld true surface derivative x',TERRAIN)
+RANGE['overworld true surface derivative x'] = (RANGE['overworld true surface derivative x-'] + RANGE['overworld true surface derivative x+']) / 2
+if 'overworld true surface derivative y-' not in TERRAIN:
+	TERRAIN['overworld true surface derivative y-']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE],
 		GRID_SIZE,
 	)
-RANGE['overworld surface derivative y-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld surface derivative y+' not in TERRAIN:
-	TERRAIN['overworld surface derivative y+']: Screen[float] = keyMap(
+	cleanMapping('overworld true surface derivative y-',TERRAIN)
+RANGE['overworld true surface derivative y-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
+if 'overworld true surface derivative y+' not in TERRAIN:
+	TERRAIN['overworld true surface derivative y+']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,y],
 		GRID_SIZE,
 	)
-RANGE['overworld surface derivative y+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld surface derivative y' not in TERRAIN:
-	TERRAIN['overworld surface derivative y'] = (TERRAIN['overworld surface derivative y-'] + TERRAIN['overworld surface derivative y+']) / 2
-RANGE['overworld surface derivative y'] = (RANGE['overworld surface derivative y-'] + RANGE['overworld surface derivative y+']) / 2
+	cleanMapping('overworld true surface derivative y+',TERRAIN)
+RANGE['overworld true surface derivative y+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
+if 'overworld true surface derivative y' not in TERRAIN:
+	TERRAIN['overworld true surface derivative y'] = (TERRAIN['overworld true surface derivative y-'] + TERRAIN['overworld true surface derivative y+']) / 2
+	cleanMapping('overworld true surface derivative y',TERRAIN)
+RANGE['overworld true surface derivative y'] = (RANGE['overworld true surface derivative y-'] + RANGE['overworld true surface derivative y+']) / 2
 if 'overworld surface normal magnitude' not in TERRAIN:
-	TERRAIN['overworld surface normal magnitude']: Screen[float] = (1 + TERRAIN['overworld surface derivative x']**2 + TERRAIN['overworld surface derivative y']**2)**0.5
-RANGE['overworld surface normal magnitude'] = (1 + RANGE['overworld surface derivative x']**2 + RANGE['overworld surface derivative y']**2)**0.5
+	TERRAIN['overworld surface normal magnitude']: Screen[float] = (1 + TERRAIN['overworld true surface derivative x']**2 + TERRAIN['overworld true surface derivative y']**2)**0.5
+	cleanMapping('overworld surface normal magnitude',TERRAIN)
+RANGE['overworld surface normal magnitude'] = (1 + RANGE['overworld true surface derivative x']**2 + RANGE['overworld true surface derivative y']**2)**0.5
 if 'overworld surface normal x' not in TERRAIN:
-	TERRAIN['overworld surface normal x']: Screen[float] = -TERRAIN['overworld surface derivative x'] / TERRAIN['overworld surface normal magnitude']
-RANGE['overworld surface normal x'] = -RANGE['overworld surface derivative x'] / RANGE['overworld surface normal magnitude']
+	TERRAIN['overworld surface normal x']: Screen[float] = -TERRAIN['overworld true surface derivative x'] / TERRAIN['overworld surface normal magnitude']
+	cleanMapping('overworld surface normal x',TERRAIN)
+RANGE['overworld surface normal x'] = -RANGE['overworld true surface derivative x'] / RANGE['overworld surface normal magnitude']
 if 'overworld surface normal y' not in TERRAIN:
-	TERRAIN['overworld surface normal y']: Screen[float] = -TERRAIN['overworld surface derivative y'] / TERRAIN['overworld surface normal magnitude']
-RANGE['overworld surface normal y'] = -RANGE['overworld surface derivative y'] / RANGE['overworld surface normal magnitude']
+	TERRAIN['overworld surface normal y']: Screen[float] = -TERRAIN['overworld true surface derivative y'] / TERRAIN['overworld surface normal magnitude']
+	cleanMapping('overworld surface normal y',TERRAIN)
+RANGE['overworld surface normal y'] = -RANGE['overworld true surface derivative y'] / RANGE['overworld surface normal magnitude']
 if 'overworld surface normal z' not in TERRAIN:
 	TERRAIN['overworld surface normal z']: Screen[float] = 1 / TERRAIN['overworld surface normal magnitude']
+	cleanMapping('overworld surface normal z',TERRAIN)
 RANGE['overworld surface normal z'] = 1 / RANGE['overworld surface normal magnitude']
-if 'overworld surface wind x' not in TERRAIN:
-	TERRAIN['overworld surface wind x']: Screen[float] = Screen(GRID_SIZE,0)
-	for i in range(GRID_SIZE):
-		if i >= 0 and i < (1/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
-		elif i >= (1/6) * GRID_SIZE - GRID_SIZE/18 and i < (1/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = 0
-		elif i >= (1/6) * GRID_SIZE and i < (2/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
-		elif i >= (2/6) * GRID_SIZE and i < (2/6) * GRID_SIZE + GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = 0
-		elif i >= (2/6) * GRID_SIZE + GRID_SIZE/18 and i < (3/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
-		elif i >= (3/6) * GRID_SIZE - GRID_SIZE/18 and i < (3/6) * GRID_SIZE + GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = 0
-		elif i >= (3/6) * GRID_SIZE + GRID_SIZE/18 and i < (4/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
-		elif i >= (4/6) * GRID_SIZE - GRID_SIZE/18 and i < (4/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = 0
-		elif i >= (4/6) * GRID_SIZE and i < (5/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = -MAX_SPEED
-		elif i >= (5/6) * GRID_SIZE and i < (5/6) * GRID_SIZE + GRID_SIZE/12:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = 0
-		else:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind x'][j,i] = MAX_SPEED
-RANGE['overworld surface wind x'] = Interval(-MAX_SPEED,MAX_SPEED)
-if 'overworld surface wind y' not in TERRAIN:
-	TERRAIN['overworld surface wind y']: Screen[float] = Screen(GRID_SIZE,0)
-	for i in range(GRID_SIZE):
-		if i >= 0 and i < (1/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
-		elif i >= (1/6) * GRID_SIZE - GRID_SIZE/18 and i < (1/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = 0
-		elif i >= (1/6) * GRID_SIZE and i < (2/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
-		elif i >= (2/6) * GRID_SIZE and i < (2/6) * GRID_SIZE + GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = 0
-		elif i >= (2/6) * GRID_SIZE + GRID_SIZE/18 and i < (3/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
-		elif i >= (3/6) * GRID_SIZE - GRID_SIZE/18 and i < (3/6) * GRID_SIZE + GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = 0
-		elif i >= (3/6) * GRID_SIZE + GRID_SIZE/18 and i < (4/6) * GRID_SIZE - GRID_SIZE/18:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
-		elif i >= (4/6) * GRID_SIZE - GRID_SIZE/18 and i < (4/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = 0
-		elif i >= (4/6) * GRID_SIZE and i < (5/6) * GRID_SIZE:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = -MAX_SPEED
-		elif i >= (5/6) * GRID_SIZE and i < (5/6) * GRID_SIZE + GRID_SIZE/12:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = 0
-		else:
-			for j in range(GRID_SIZE):
-				TERRAIN['overworld surface wind y'][j,i] = MAX_SPEED
-RANGE['overworld surface wind y'] = Interval(-MAX_SPEED,MAX_SPEED)
 if 'midworld land' not in TERRAIN:
 	TERRAIN['midworld land']: Screen[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
+	cleanMapping('midworld land',TERRAIN)
 if 'overworld depth altitude' not in TERRAIN:
 	TERRAIN['overworld depth altitude']: Screen[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
+	cleanMapping('overworld depth altitude',TERRAIN)
 RANGE['overworld depth altitude'] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - RANGE['overworld depth']
 if 'overworld thickness' not in TERRAIN:
 	TERRAIN['overworld thickness']: Screen[float] = TERRAIN['overworld surface'] + TERRAIN['overworld depth']
+	cleanMapping('overworld thickness',TERRAIN)
 RANGE['overworld thickness'] = RANGE['overworld surface'] + RANGE['overworld depth']
 if 'overworld-midworld connections' not in TERRAIN:
 	TERRAIN['overworld-midworld connections']: Screen[bool] = TERRAIN['midworld surface'] >= TERRAIN['overworld depth altitude']
+	cleanMapping('overworld-midworld connections',TERRAIN)
 if 'midworld open space' not in TERRAIN:
 	TERRAIN['midworld open space']: Screen[float] = ifMap(
 		0,
 		TERRAIN['overworld-midworld connections'],
 		TERRAIN['overworld depth altitude'] - TERRAIN['midworld surface'],
 	)
+	cleanMapping('midworld open space',TERRAIN)
 RANGE['midworld open space'] = 0 | (RANGE['overworld depth altitude'] - RANGE['midworld surface'])
 if 'overworld sunlight' not in TERRAIN:
 	TERRAIN['overworld sunlight']: Screen[float] = getSunlight(
@@ -982,9 +945,11 @@ if 'overworld sunlight' not in TERRAIN:
 		sunlightMin = OVERWORLD_SUNLIGHT_MIN,
 		tilt = AXIS_TILT,
 	)
+	cleanMapping('overworld sunlight',TERRAIN)
 RANGE['overworld sunlight'] = Interval(OVERWORLD_SUNLIGHT_MIN,OVERWORLD_SUNLIGHT_MAX)
 if 'overworld distance from sea level' not in TERRAIN:
 	TERRAIN['overworld distance from sea level']: Screen[float] = abs(TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL)
+	cleanMapping('overworld distance from sea level',TERRAIN)
 RANGE['overworld distance from sea level'] = abs(RANGE['overworld surface'] - OVERWORLD_SEA_LEVEL)
 if 'overworld temperature' not in TERRAIN:
 	TERRAIN['overworld temperature']: Screen[float] = (TERRAIN['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - TERRAIN['overworld distance from sea level']))/2
@@ -993,6 +958,7 @@ if 'overworld temperature' not in TERRAIN:
 		TERRAIN['overworld land'],
 		TERRAIN['overworld temperature'] - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
 	)
+	cleanMapping('overworld temperature',TERRAIN)
 RANGE['overworld temperature'] = (
 	(RANGE['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - RANGE['overworld distance from sea level']))
 ) | (
@@ -1000,39 +966,43 @@ RANGE['overworld temperature'] = (
 )
 if 'snow' not in TERRAIN:
 	TERRAIN['snow']: Screen[bool] = TERRAIN['overworld temperature'] <= SNOW_LEVEL
+	cleanMapping('snow',TERRAIN)
 if 'overworld temperature derivative x+' not in TERRAIN:
 	TERRAIN['overworld temperature derivative x+']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
 		GRID_SIZE,
 	)
+	cleanMapping('overworld temperature derivative x+',TERRAIN)
 RANGE['overworld temperature derivative x+'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
 if 'overworld temperature derivative y+' not in TERRAIN:
 	TERRAIN['overworld temperature derivative y+']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
 		GRID_SIZE,
 	)
+	cleanMapping('overworld temperature derivative y+',TERRAIN)
 RANGE['overworld temperature derivative y+'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
 if 'overworld temperature derivative x-' not in TERRAIN:
 	TERRAIN['overworld temperature derivative x-']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][(x - 1) % GRID_SIZE,y],
 		GRID_SIZE,
 	)
+	cleanMapping('overworld temperature derivative x-',TERRAIN)
 RANGE['overworld temperature derivative x-'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
 if 'overworld temperature derivative y-' not in TERRAIN:
 	TERRAIN['overworld temperature derivative y-']: Screen[float] = keyMap(
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][x,(y - 1) % GRID_SIZE],
 		GRID_SIZE,
 	)
+	cleanMapping('overworld temperature derivative y-',TERRAIN)
 RANGE['overworld temperature derivative y-'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
 if 'overworld temperature derivative x' not in TERRAIN:
 	TERRAIN['overworld temperature derivative x']: Screen[float] = (TERRAIN['overworld temperature derivative x+'] + TERRAIN['overworld temperature derivative x-'])/2
+	cleanMapping('overworld temperature derivative x',TERRAIN)
 RANGE['overworld temperature derivative x'] = (RANGE['overworld temperature derivative x+'] + RANGE['overworld temperature derivative x-'])/2
 if 'overworld temperature derivative y' not in TERRAIN:
 	TERRAIN['overworld temperature derivative y']: Screen[float] = (TERRAIN['overworld temperature derivative y+'] + TERRAIN['overworld temperature derivative y-'])/2
+	cleanMapping('overworld temperature derivative y',TERRAIN)
 RANGE['overworld temperature derivative y'] = (RANGE['overworld temperature derivative y+'] + RANGE['overworld temperature derivative y-'])/2
-if 'overworld temperature' not in TERRAIN:
-	TERRAIN['overworld temperature']: Screen[float] = scrMap(redBlueScale,TERRAIN['overworld temperature'])
-RANGE['overworld temperature'] = Interval(0,255 << 16)
 if 'overworld-midworld connection edges' not in TERRAIN:
 	offsets = {
 		(-1,-1),
@@ -1050,10 +1020,12 @@ if 'overworld-midworld connection edges' not in TERRAIN:
 		),
 		GRID_SIZE,
 	)
+	cleanMapping('overworld-midworld connection edges',TERRAIN)
 if 'potential midworld water' not in TERRAIN:
 	TERRAIN['potential midworld water']: Screen[bool] = TERRAIN['midworld land'] & ~(
 		TERRAIN['overworld-midworld connections'] | TERRAIN['overworld land']
 	)
+	cleanMapping('potential midworld water',TERRAIN)
 if 'midworld water' not in TERRAIN:
 	TERRAIN['midworld water']: Screen[float] = Screen(GRID_SIZE,0)
 	for i in range(GRID_SIZE):
@@ -1083,6 +1055,7 @@ if 'midworld water' not in TERRAIN:
 				if TERRAIN['midworld land'][a,b]:
 					TERRAIN['midworld water'][a,b] += total
 	TERRAIN['midworld water']: Screen[bool] = TERRAIN['midworld water'] >= 1
+	cleanMapping('midworld water',TERRAIN)
 if 'overworld greenery' not in TERRAIN:
 	overworld_surface_int = scrMap(int,TERRAIN['overworld surface'])
 	TERRAIN['overworld greenery'] = ifMap(
@@ -1094,6 +1067,7 @@ if 'overworld greenery' not in TERRAIN:
 			overworld_surface_int,
 		)
 	)
+	cleanMapping('overworld greenery',TERRAIN)
 RANGE['overworld greenery'] = Interval(0,(1 << 24) - 1)
 if 'midworld greenery' not in TERRAIN:
 	midworld_surface_v1 = TERRAIN['midworld surface'] - MIDWORLD_SEA_LEVEL/2
@@ -1122,6 +1096,7 @@ if 'midworld greenery' not in TERRAIN:
 			)
 		),
 	)
+	cleanMapping('midworld greenery',TERRAIN)
 RANGE['midworld greenery'] = Interval(0,(1 << 24) - 1)
 if 'overworld cloud density' not in TERRAIN:
 	TERRAIN['overworld cloud density']: Screen[float] = keyMap(
@@ -1138,6 +1113,7 @@ if 'overworld cloud density' not in TERRAIN:
 		),
 		GRID_SIZE,
 	)
+	cleanMapping('overworld cloud density',TERRAIN)
 values = {v for v in TERRAIN['overworld cloud density']}
 RANGE['overworld cloud density'] = Interval(
 	min(values),

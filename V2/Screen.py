@@ -180,7 +180,7 @@ class Screen(Generic[T]):
 	def max(self):
 		return max({v for v in self})
 	def min(self):
-		return max({v for v in self})
+		return min({v for v in self})
 	def __and__(self,other: Any) -> Screen:
 		if isinstance(other,Screen) and self.size == other.size:
 			return scrMap(
