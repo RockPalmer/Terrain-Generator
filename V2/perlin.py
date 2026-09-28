@@ -1,7 +1,6 @@
 import math
 import random
 
-
 # Permutation table
 _perm = list(range(256))
 random.Random(42).shuffle(_perm)

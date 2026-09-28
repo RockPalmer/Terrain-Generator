@@ -538,10 +538,6 @@ def getVector(p1: Point,p2: Point) -> array:
 		((p2[0] - p1[0] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 		((p2[1] - p1[1] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 	])
-def getCurrentTilt(day: int,tilt: int|float) -> float:
-	return -tilt + day * (2*tilt)/365
-def lattitudeToAngle(latt: int,size: int) -> float:
-	return latt * tau/size
 def randPoint(rng) -> Point:
 	return (
 		rng.randint(0,GRID_SIZE),
@@ -558,6 +554,10 @@ def getCentroid(points: list[Point]) -> Point:
 		round(sum(p[0] for p in points)/len(points)),
 		round(sum(p[1] for p in points)/len(points)),
 	)
+def getCurrentTilt(day: int,tilt: int|float) -> float:
+	return -tilt + day * (2*tilt)/365
+def lattitudeToAngle(latt: int,size: int) -> float:
+	return latt * tau/size
 def getAngleForDay(latt: int,day: int,size: int,tilt: int|float) -> float:
 	return (lattitudeToAngle(latt,size) + getCurrentTilt(day,tilt)) % tau
 def getVectorForDay(latt: int,day: int,size: int,tilt: int|float) -> tuple[float,float]: # (float[-GRID_SIZE/tau,GRID_SIZE/tau],float[-GRID_SIZE/tau,GRID_SIZE/tau])
@@ -1015,7 +1015,7 @@ if 'overworld-midworld connection edges' not in TERRAIN:
 		(1,1),
 	}
 	TERRAIN['overworld-midworld connection edges']: Screen[bool] = keyMap(
-		lambda x,y : not TERRAIN['overworld-midworld connections'][i,j] and any(
+		lambda x,y : not TERRAIN['overworld-midworld connections'][x,y] and any(
 			TERRAIN['overworld-midworld connections'][(x + i) % GRID_SIZE,(y + j) % GRID_SIZE] for i,j in offsets
 		),
 		GRID_SIZE,
