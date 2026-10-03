@@ -53,17 +53,14 @@ def ifMapImage(s1,s2,s3) -> Image:
 			s3
 		)
 	return s1 if s2 else s3
-def keyMapImage(fun: Callable,size: int) -> Image:
-	img = Image(size)
-	for i in range(size):
-		for j in range(size):
-			img[i,j] = fun(i,j)
-	return img
 
 class Image(Generic[T]):
 	def __init__(self,size: int,value = None) -> None:
 		self.size = size
-		self.values = [[value for _ in range(size)] for _ in range(size)]
+		if callable(value):
+			self.values = [[value(i,j) for j in range(size)] for i in range(size)]
+		else:
+			self.values = [[value for _ in range(size)] for _ in range(size)]
 	def __len__(self) -> int:
 		return len(self.values)**2
 	def __iter__(self) -> iter:

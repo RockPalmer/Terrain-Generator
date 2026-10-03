@@ -1,2 +1,60 @@
-pygame 2.5.2 (SDL 2.30.0, Python 3.12.3)
-Hello from the pygame community. https://www.pygame.org/contribute.html
+PERLIN_NOISE(size,seed,scale,octaves):
+	noise_map = Image(size)
+	for y in range(size):
+		for x in range(size):
+			value = 0
+			amplitude = 1
+			frequency = 1
+			amplitude_sum = 0
+			for _ in range(octaves):
+				angle_x = tau * x / size
+				angle_y = tau * y / size
+				nx = cos(angle_x) * scale * frequency
+				ny = sin(angle_x) * scale * frequency
+				nz = cos(angle_y) * scale * frequency
+				nw = sin(angle_y) * scale * frequency + seed
+				sample = perlin5(nx,ny,nz,nw,0)
+				value += sample * amplitude
+				amplitude_sum += amplitude
+				amplitude *= 0.5
+				frequency *= 2
+			noise_map[x,y] = value / amplitude_sum
+	return noise_map
+
+
+noise_map[x,y] = sum(
+	perlin5(
+		cos(tau * x / size) * scale * 2**octave,
+		sin(tau * x / size) * scale * 2**octave,
+		cos(tau * y / size) * scale * 2**octave,
+		sin(tau * y / size) * scale * 2**octave + seed,
+		0
+	) * 0.5**octave for octave = 0...(octaves - 1)
+) / sum(0.5**octave for octave = 0...(octaves - 1))
+
+a = tau/size
+x = Image(size,lambda i,j : i) * a
+y = Image(size,lambda i,j : j) * a
+zeros = Image(size,0)
+cos_x = scrMap(cos,x) * scale
+sin_x = scrMap(sin,x) * scale
+cos_y = scrMap(cos,y) * scale
+sin_y = scrMap(sin,y) * scale
+
+nx = [
+	cos_x * 2**octave for octave in octaves
+]
+ny = [
+	sin_x * 2**octave for octave in octaves
+]
+nz = [
+	cos_y * 2**octave for octave in octaves
+]
+nw = [
+	sin_y * 2**octave + seed for octave in octaves
+]
+amplitudes = [0.5**octave for octave in octaves]
+perlin = [
+	scrMap(perlin5,nx,ny,nz,nw,zeros) * amplitude for amplitude in amplitudes
+]
+noise_map = sum(perlin) / sum(amplitude)

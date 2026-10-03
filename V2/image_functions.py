@@ -2,13 +2,11 @@ from Image import (
 	Image,
 	scrMapImage,
 	ifMapImage,
-	keyMapImage,
 )
 from Video import (
 	Video,
 	scrMapVideo,
 	ifMapVideo,
-	keyMapVideo,
 )
 from typing import Callable
 
@@ -28,8 +26,3 @@ def ifMap(s1,s2,s3) -> Image|Video:
 	) and not isinstance(s1,Image) and not isinstance(s2,Image) and not isinstance(s3,Image):
 		return ifMapVideo(s1,s2,s3)
 	return ifMapImage(s1,s2,s3)
-def keyMap(fun: Callable,*vals) -> Image|Video:
-	match len(vals):
-		case 2: return keyMapVideo(fun,*vals)
-		case 1: return keyMapImage(fun,*vals)
-		case _: raise ValueError
