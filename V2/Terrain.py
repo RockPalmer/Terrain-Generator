@@ -529,7 +529,7 @@ def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int
 	frequencies = [2**octave for octave in range(octaves)]
 	amplitudes = [0.5**octave for octave in range(octaves)]
 	layers = [
-		perlinNoise(size,seed,scale,frequency,amplitude) for frequency,amplitude in zip(frequencies,amplitudes)
+		perlinNoise(size,seed,scale,frequency) * amplitude for frequency,amplitude in zip(frequencies,amplitudes)
 	]
 	return sum(layers) / sum(amplitudes)
 def perlinNoise(size: int,seed: int,scale: int,frequency: float) -> Image[float]:
@@ -771,14 +771,17 @@ def cleanMapping(name: str,terrain: dict[str,Image]) -> None:
 		if n in terrain:
 			print(f"need to regenerate {n}...")
 			del terrain[n]
+def clearCache() -> None:
+	for entry in TERRAIN_DIRECTORY.iterdir():
+		entry.unlink()
 
 TERRAIN = loadTerrainValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
-FOUND = {k : k in TERRAIN for k in ARGS}
 
 amplitudes = [0.5**i for i in range(TERRAIN_NOISE_OCTAVES)]
 total_amplitude = sum(amplitudes)
 
+clearCache()
 for i in range(TERRAIN_NOISE_OCTAVES):
 	str_val_0 = f"perlin noise 0 {i}"
 	str_val_1 = f"perlin noise 1 {i}"
@@ -812,23 +815,48 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 	RANGE[str_val_2] = Interval(-1,1)
 if 'perlin noise 0' not in TERRAIN:
 	print('generating perlin noise 0...')
+	'''
 	TERRAIN['perlin noise 0']: Image[float] = sum(
 		TERRAIN[f"perlin noise 0 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 	) / total_amplitude
+	'''
+	TERRAIN['perlin noise 0']: Image[float] = layeredPerlinNoise(
+		size = GRID_SIZE,
+		seed = NOISE_SEED,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	)
 	cleanMapping('perlin noise 0',TERRAIN)
 RANGE['perlin noise 0'] = Interval(-1,1)
 if 'perlin noise 1' not in TERRAIN:
 	print('generating perlin noise 1...')
+	'''
 	TERRAIN['perlin noise 1']: Image[float] = sum(
 		TERRAIN[f"perlin noise 1 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 	) / total_amplitude
+	'''
+
+	TERRAIN['perlin noise 1']: Image[float] = layeredPerlinNoise(
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 1,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	)
 	cleanMapping('perlin noise 1',TERRAIN)
 RANGE['perlin noise 1'] = Interval(-1,1)
 if 'perlin noise 2' not in TERRAIN:
 	print('generating perlin noise 2...')
+	'''
 	TERRAIN['perlin noise 2']: Image[float] = sum(
 		TERRAIN[f"perlin noise 2 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 	) / total_amplitude
+	'''
+	TERRAIN['perlin noise 2']: Image[float] = layeredPerlinNoise(
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 2,
+		scale = TERRAIN_NOISE_SCALE,
+		octaves = TERRAIN_NOISE_OCTAVES,
+	)
 	cleanMapping('perlin noise 2',TERRAIN)
 RANGE['perlin noise 2'] = Interval(-1,1)
 if 'overworld surface original' not in TERRAIN:
