@@ -12,7 +12,7 @@ T = TypeVar("T")
 def scrMapVideo(fun: Callable,*screens: tuple[Video,...]) -> Video:
 	length = screens[0].length
 	size = screens[0].size
-	screen = Video(size,length)
+	screen = Video(length,size)
 	for i in range(size):
 		for j in range(size):
 			for k in range(length):

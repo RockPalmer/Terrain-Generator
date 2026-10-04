@@ -85,6 +85,8 @@ OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
 OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 OVERWORLD_TEMPERATURE_LAND_DIFFERENCE: int = 6
 SNOW_LEVEL: int = 60
+WIND_FRAMES: int = 50
+WIND_TIME_WINDOW: int|float = 1
 
 OVERWORLD_TEMPERATURE_MIN: float = OVERWORLD_TEMPERATURE_RANGE[0]
 OVERWORLD_TEMPERATURE_MAX: float = OVERWORLD_TEMPERATURE_RANGE[1]
@@ -101,7 +103,7 @@ MIDWORLD_DEPTH_MAX: int = MIDWORLD_DEPTH_RANGE[1] - 1
 OVERWORLD_SEA_LEVEL: float = OVERWORLD_SEA_LEVEL_FACTOR * OVERWORLD_SURFACE_MAX
 MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
 RADIUS: float = GRID_SIZE / tau
-WIND_FRAMES: int = 50
+WIND_TIME_INTERVAL = WIND_TIME_WINDOW / WIND_FRAMES
 
 OVERWORLD_CLOUD_DENSITY_WIDTH: float = GRID_SIZE * OVERWORLD_CLOUD_DENSITY_FACTOR
 OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
@@ -109,7 +111,7 @@ MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTO
 OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_MAX + OVERWORLD_DEPTH_MAX
 
 FREQUENCIES = [2**i for i in range(TERRAIN_NOISE_OCTAVES)]
-T_VALUES = [i / WIND_FRAMES for i in range(WIND_FRAMES)]
+T_VALUES = [i * WIND_TIME_INTERVAL for i in range(WIND_FRAMES)]
 ARGS: dict[str,dict] = {
 	'overworld surface original' : {
 		'terrain' : [],
@@ -834,7 +836,7 @@ def clearCache() -> None:
 	for entry in TERRAIN_DIRECTORY.iterdir():
 		entry.unlink()
 
-#clearCache()
+clearCache()
 TERRAIN = loadTerrainValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
@@ -1140,6 +1142,7 @@ if 'overworld pressure' not in TERRAIN:
 	)
 	TERRAIN['overworld pressure'].values = [TERRAIN[pressure_frames[i]] for i in range(WIND_FRAMES)]
 	cleanMapping('overworld pressure',TERRAIN)
+print(f"{len(TERRAIN['overworld pressure'].values)}x{len(TERRAIN['overworld pressure'].values[0].values)}x{len(TERRAIN['overworld pressure'].values[0].values[0])}")
 RANGE['overworld pressure'] = Interval(-1,1)
 if 'overworld temperature' not in TERRAIN:
 	print('generating overworld temperature...')
@@ -1373,7 +1376,7 @@ while running:
 					print(sel[i,j])
 					raise
 	else:
-		k = (index // 10) % FRAMES
+		k = index % sel.length
 		for i in range(GRID_SIZE):
 			for j in range(GRID_SIZE):
 				rect = pygame.Rect(
@@ -1383,9 +1386,9 @@ while running:
 					CELL_SIZE,
 				)
 				try:
-					pygame.draw.rect(WINDOW,sel,rect)
+					pygame.draw.rect(WINDOW,sel[k,i,j],rect)
 				except:
-					print(TERRAIN[DROPDOWN.selected][i,j,k])
+					print(TERRAIN[DROPDOWN.selected][k,i,j])
 					raise
 	index += 1
 	DROPDOWN.draw(WINDOW)

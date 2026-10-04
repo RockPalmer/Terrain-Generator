@@ -78,14 +78,14 @@ class Image(Generic[T]):
 		try:
 			return self.values[index[0]][index[1]]
 		except IndexError:
-			raise IndexError(index)
+			raise IndexError(f"{index} -> {len(self.values)}x{len(self.values[0])}")
 	def __setitem__(self,index: tuple,value: Any) -> None:
 		if not isinstance(index,tuple) or len(index) != 2:
 			raise KeyError(f"Image[{index}]")
 		try:
 			self.values[index[0]][index[1]] = value
 		except IndexError:
-			raise IndexError(index)
+			raise IndexError(f"{index} -> {len(self.values)}x{len(self.values[0])}")
 	def scale(self,*args) -> Image:
 		match len(args):
 			case 4: (minv1,maxv1,minv2,maxv2) = args
