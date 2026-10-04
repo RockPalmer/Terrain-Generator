@@ -61,6 +61,8 @@ class Image(Generic[T]):
 			self.values = [[value(i,j) for j in range(size)] for i in range(size)]
 		else:
 			self.values = [[value for _ in range(size)] for _ in range(size)]
+	def first(self):
+		return self[0,0]
 	def __len__(self) -> int:
 		return len(self.values)**2
 	def __iter__(self) -> iter:
@@ -73,11 +75,17 @@ class Image(Generic[T]):
 	def __getitem__(self,index: tuple):
 		if not isinstance(index,tuple) or len(index) != 2:
 			raise KeyError(f"Image[{index}]")
-		return self.values[index[0]][index[1]]
+		try:
+			return self.values[index[0]][index[1]]
+		except IndexError:
+			raise IndexError(index)
 	def __setitem__(self,index: tuple,value: Any) -> None:
 		if not isinstance(index,tuple) or len(index) != 2:
 			raise KeyError(f"Image[{index}]")
-		self.values[index[0]][index[1]] = value
+		try:
+			self.values[index[0]][index[1]] = value
+		except IndexError:
+			raise IndexError(index)
 	def scale(self,*args) -> Image:
 		match len(args):
 			case 4: (minv1,maxv1,minv2,maxv2) = args

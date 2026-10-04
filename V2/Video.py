@@ -16,8 +16,8 @@ def scrMapVideo(fun: Callable,*screens: tuple[Video,...]) -> Video:
 	for i in range(size):
 		for j in range(size):
 			for k in range(length):
-				scns = [scn[i,j,k] for scn in screens]
-				screen[i,j,k] = fun(*scns)
+				scns = [scn[k,i,j] for scn in screens]
+				screen[k,i,j] = fun(*scns)
 	return screen
 def ifMapVideo(s1,s2,s3) -> Video:
 	if isinstance(s1,Video):
@@ -56,19 +56,17 @@ def ifMapVideo(s1,s2,s3) -> Video:
 			s3
 		)
 	return s1 if s2 else s3
-def keyMapVideo(fun: Callable,size: int,length: int) -> Image:
-	vid = Video(size)
-	for i in range(size):
-		for j in range(size):
-			for k in range(length):
-				vid[i,j,k] = fun(i,j,k)
-	return vid
 
 class Video(Generic[T]):
-	def __init__(self,size: int,length: int,value = None) -> None:
-		self.size = size
+	def __init__(self,length: int,size: int,value = None) -> None:
 		self.length = length
-		self.values = [Image(size) for i in range(length)]
+		self.size = size
+		if callable(value):
+			self.values = [Image(size,lambda x,y : value(t,x,y)) for t in range(length)]
+		else:
+			self.values = [Image(size,value) for i in range(length)]
+	def first(self):
+		return self[0].first()
 	def __len__(self) -> int:
 		return len(self.values[0]) * self.length
 	def __iter__(self) -> iter:
@@ -84,14 +82,23 @@ class Video(Generic[T]):
 			return self.values[index]
 		if not isinstance(index,tuple) or len(index) != 3:
 			raise KeyError(f"Video[{index}]")
-		return self.values[index[2]][index[:-1]]
+		try:
+			return self.values[index[0]][index[1:]]
+		except IndexError:
+			raise IndexError(index)
 	def __setitem__(self,index: tuple,value: Any) -> None:
 		if isinstance(index,int):
-			self.values[index] = value
+			try:
+				self.values[index] = value
+			except IndexError:
+				raise IndexError(index)
 		elif not isinstance(index,tuple) or len(index) != 3:
 			raise KeyError(f"Video[{index}]")
 		else:
-			self.values[index[2]][index[:-1]] = value
+			try:
+				self.values[index[0]][index[1:]] = value
+			except IndexError:
+				raise IndexError(f"{index} -> {len(self.values)}")
 	def scale(self,*args) -> Video:
 		match len(args):
 			case 4: (minv1,maxv1,minv2,maxv2) = args

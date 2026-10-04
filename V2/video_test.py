@@ -1,5 +1,6 @@
 import pygame,random
 from perlin5 import perlin5
+from perlin4 import perlin4
 from Image import Image
 from image_functions import scrMap
 from math import (
@@ -7,16 +8,24 @@ from math import (
 	sin,
 	tau,
 )
-from PerlinGenerator import PerlinGenerator
 
 '''
+(+t,0,0,0):
+	x = 0 -> 64
+(0,+t,0,0):
+	x = 32 -> 96
+(0,0,+t,0):
+	y = 0 -> 64
+(0,0,0,+t):
+	y = 32 -> 96
+'''
+
 class PerlinGenerator:
 	def __init__(self,size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> None:
 		self.size = size
 		self.scale = scale
 		self.octaves = octaves
-		rng = random.Random(seed)
-		self.seed_offset = rng.random() * 10000.0
+		self.seed_offset = seed
 	def getAtTime(self,t: int|float) -> Image:
 		noise_map = Image(self.size)
 		for y in range(self.size):
@@ -33,17 +42,17 @@ class PerlinGenerator:
 					ny = sin(angle_x) * self.scale * frequency
 					nz = cos(angle_y) * self.scale * frequency
 					nw = sin(angle_y) * self.scale * frequency + self.seed_offset
-					sample = perlin5(nx,ny,nz,nw,t)
+					sample = perlin4(nx,ny,nz + t,nw)
 					value += sample * amplitude
 					amplitude_sum += amplitude
 					amplitude *= 0.5
 					frequency *= 2.0
 				noise_map[x,y] = value / amplitude_sum
 		return noise_map
-'''
+
 FRAMES = 50
 
-CELL_SIZE = 2
+CELL_SIZE = 4
 GRID_SIZE = 128
 LENGTH = GRID_SIZE * CELL_SIZE
 

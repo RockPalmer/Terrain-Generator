@@ -8,10 +8,9 @@ from math import (
 )
 
 class PerlinGenerator:
-	def __init__(self,size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> None:
+	def __init__(self,size: int,seed: int,scale: int|float) -> None:
 		self.size = size
 		self.scale = scale
-		self.octaves = octaves
 		self.seed_offset = seed
 	def getAtTime(self,t: int|float) -> Image:
 		noise_map = Image(self.size)

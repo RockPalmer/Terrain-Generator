@@ -1,5 +1,6 @@
 import pygame,random,json
 from perlin5 import perlin5
+from perlin4 import perlin4
 from Image import Image
 from Video import Video
 from PerlinGenerator import PerlinGenerator
@@ -11,7 +12,9 @@ from math import (
 	cos,
 	sin,
 	tau,
+	pi,
 	e,
+	acos,
 )
 from pathlib import Path
 from numpy import array
@@ -50,10 +53,8 @@ def getArguments(name: str,arguments: dict[str,dict]) -> dict[str,Any]:
 TERRAIN_DIRECTORY = Path('terrain')
 TERRAIN_DIRECTORY.mkdir(parents = True,exist_ok = True)
 
-GRID_SIZE: int = 128
+GRID_SIZE: int = 256
 CELL_SIZE: int = 4
-FRAMES: int = 50
-FRAME_SPEED: int|float = 1
 OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
 MIDWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
@@ -63,8 +64,9 @@ OVERWORLD_SUNLIGHT_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_SEA_LEVEL_FACTOR = 0.55
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 TERRAIN_NOISE_SCALE: int = 1
+OVERWORLD_PRESSURE_SCALE: float = 0.5
 TERRAIN_NOISE_OCTAVES: int = 8
-NOISE_SEED: int = 0
+NOISE_SEED: int = 500
 AXIS_TILT: float = 23.44 * tau/360
 HUMIDITY_SMUDGE_RADIUS: int = 7
 UI_PANEL_WIDTH: int = 500
@@ -98,7 +100,8 @@ MIDWORLD_DEPTH_MIN: int = MIDWORLD_DEPTH_RANGE[0]
 MIDWORLD_DEPTH_MAX: int = MIDWORLD_DEPTH_RANGE[1] - 1
 OVERWORLD_SEA_LEVEL: float = OVERWORLD_SEA_LEVEL_FACTOR * OVERWORLD_SURFACE_MAX
 MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
-RADIUS: float = GRID_SIZE/tau
+RADIUS: float = GRID_SIZE / tau
+WIND_FRAMES: int = 50
 
 OVERWORLD_CLOUD_DENSITY_WIDTH: float = GRID_SIZE * OVERWORLD_CLOUD_DENSITY_FACTOR
 OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
@@ -106,29 +109,10 @@ MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTO
 OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_MAX + OVERWORLD_DEPTH_MAX
 
 FREQUENCIES = [2**i for i in range(TERRAIN_NOISE_OCTAVES)]
+T_VALUES = [i / WIND_FRAMES for i in range(WIND_FRAMES)]
 ARGS: dict[str,dict] = {
-	'perlin noise 0' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
-		},
-	},
-	'perlin noise 1' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
-		},
-	},
-	'perlin noise 2' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
-		},
-	},
 	'overworld surface original' : {
-		'terrain' : [
-			'perlin noise 0',
-		],
+		'terrain' : [],
 		'nonterrain' : {
 			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_MAX,
 		},
@@ -140,17 +124,13 @@ ARGS: dict[str,dict] = {
 		'nonterrain' : {},
 	},
 	'overworld depth' : {
-		'terrain' : [
-			'perlin noise 1',
-		],
+		'terrain' : [],
 		'nonterrain' : {
 			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
 		},
 	},
 	'midworld surface' : {
-		'terrain' : [
-			'perlin noise 2',
-		],
+		'terrain' : [],
 		'nonterrain' : {
 			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_MAX,
 		},
@@ -314,6 +294,24 @@ ARGS: dict[str,dict] = {
 			'AXIS_TILT' : AXIS_TILT,
 		},
 	},
+	'overworld general wind magnitude' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld general wind angle' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+		},
+	},
+	'overworld pressure' : {
+		'terrain' : [],
+		'nonterrain' : {
+			'WIND_FRAMES' : WIND_FRAMES,
+		},
+	},
 	'overworld temperature' : {
 		'terrain' : [
 			'overworld sunlight',
@@ -462,36 +460,55 @@ ARGS: dict[str,dict] = {
 	},
 }
 for i in range(TERRAIN_NOISE_OCTAVES):
-	ARGS[f"perlin noise 0 {i}"] = {
+	str_val_0 = f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
+	str_val_1 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
+	str_val_2 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
+	ARGS[str_val_0] = {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
 			'NOISE_SEED0' : NOISE_SEED,
 			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
 			f"FREQUENCY0_{i}" : FREQUENCIES[i],
+			f"t0_{i}" : 0,
 		},
 	}
-	ARGS['perlin noise 0']['terrain'].append(f"perlin noise 0 {i}")
-	ARGS[f"perlin noise 1 {i}"] = {
+	ARGS['overworld surface original']['terrain'].append(str_val_0)
+	ARGS[str_val_1] = {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
 			'NOISE_SEED1' : NOISE_SEED + 1,
 			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
 			f"FREQUENCY1_{i}" : FREQUENCIES[i],
+			f"t1_{i}" : 0,
 		},
 	}
-	ARGS['perlin noise 1']['terrain'].append(f"perlin noise 1 {i}")
-	ARGS[f"perlin noise 2 {i}"] = {
+	ARGS['overworld depth']['terrain'].append(str_val_1)
+	ARGS[str_val_2] = {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
 			'NOISE_SEED2' : NOISE_SEED + 2,
 			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
 			f"FREQUENCY1_{2}" : FREQUENCIES[2],
+			f"t2_{i}" : 0,
 		},
 	}
-	ARGS['perlin noise 2']['terrain'].append(f"perlin noise 2 {i}")
+	ARGS['midworld surface']['terrain'].append(str_val_2)
+for i in range(WIND_FRAMES):
+	name = f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"
+	ARGS['overworld pressure']['terrain'].append(name)
+	ARGS[name] = {
+		'terrain' : [],
+		'nonterrain' : {
+			'GRID_SIZE' : GRID_SIZE,
+			'NOISE_SEED3' : NOISE_SEED + 3,
+			'TERRAIN_NOISE_SCALE_PRESSURE' : 0.75,
+			f"FREQUENCY3_{i}" : 1,
+			f"t3_{i}" : T_VALUES[i],
+		},
+	}
 ARGUMENTS: dict = {name : getArguments(name,ARGS) for name in ARGS}
 
 RANGE: dict[str,Interval] = {}
@@ -511,6 +528,8 @@ def dn():
 	global itera
 
 	itera -= 1
+def redBlueScale(value: int|float) -> int:
+	return int(value) << 16 | (255 - int(value))
 def perlinVideo(size: int,speed: int|float,frames: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Video[float]:
 	gen = PerlinGenerator(
 		size = size,
@@ -532,7 +551,7 @@ def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int
 		perlinNoise(size,seed,scale,frequency) * amplitude for frequency,amplitude in zip(frequencies,amplitudes)
 	]
 	return sum(layers) / sum(amplitudes)
-def perlinNoise(size: int,seed: int,scale: int,frequency: float) -> Image[float]:
+def perlinNoise(size: int,seed: int,scale: int,frequency: float,t: int|float = 0) -> Image[float]:
 	print('generating perlin noise layer...')
 	factor: float = tau / size
 	x: Image[int] = Image(size,lambda x,y : x) * factor
@@ -546,14 +565,20 @@ def perlinNoise(size: int,seed: int,scale: int,frequency: float) -> Image[float]
 	ny: Image[float] = sin_x * frequency
 	nz: Image[float] = cos_y * frequency
 	nw: Image[float] = sin_y * frequency + seed
-	return scrMap(perlin5,nx,ny,nz,nw,zeros)
+	return scrMap(perlin4,nx,ny,nz + t,nw)
+def dimensions(value):
+	if isinstance(value,list):
+		if len(value) == 0:
+			return 'list[0]'
+def intToColor(value: int|float) -> Color:
+	return (
+		(int(value) >> 16) & 255,
+		(int(value) >> 8) & 255,
+		int(value) & 255,
+	)
 def pointToColor(point: Point) -> Color:
 	value = round((point[0] * 255 + point[1]) * MAX_COLOR_INTEGER/MAX_POINT_INTEGER)
-	return (
-		value & 255,
-		(value >> 8) & 255,
-		(value >> 16) & 255,
-	)
+	return Color(value)
 def getMaxX(layout: dict[Point,str]) -> int:
 	return max(x for x,_ in layout.keys())
 def getMaxY(layout: dict[Point,str]) -> int:
@@ -569,6 +594,51 @@ def getVector(p1: Point,p2: Point) -> array:
 		((p2[0] - p1[0] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 		((p2[1] - p1[1] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
 	])
+def getGenWindMagnitude(y: int|float,size: int) -> float:
+	if y >= size / 4: return getGenWindMagnitude(y % (size / 4),size)
+	return size / 8 - abs(y - size / 8)
+def getGenWindAngle(y: int|float,size: int) -> float:
+	if y <= size / 4: return 3 * pi - y * pi / (size / 4)
+	if y < size / 2: return 3 * pi + (y - size / 4) * pi / (size / 4)
+	if y == size / 2: return 0
+	if y <= 3 * size / 4: return pi + (3 * size / 4 - y) * pi / (size / 4)
+	return pi - (size - y) * pi / (size / 4)
+def getNextPixelByAngle(start: Point,angle: float,size: int) -> Point:
+	x,y = start
+	if 0 <= angle and angle < pi / 2: return ((x + 1) % size,y)
+	if pi / 2 < angle and angle < 3/2 * pi: return (x,(y - 1) % size)
+	if 3/2 * pi <= angle and angle < 5/2 * pi: return ((x - 1) % size,y)
+	if 5/2 * pi <= angle and angle < 7/2 * pi: return (x,(y + 1) % size)
+	if 7/2 * pi <= angle and angle < 4 * pi: return ((x + 1) % size,y)
+	raise ValueError
+def getGenWindValueVideo(magnitudes: list[float],angles: list[float],size: int,frames: int) -> Video[float]:
+	start_x = [
+		size//4,
+		size//2,
+		3*size//4,
+	]
+	start_y = [
+		0,
+		size//4,
+		3*size//4 - 1,
+		size - 1,
+	]
+	starts = []
+	for x in start_x:
+		for y in start_y:
+			starts.append((x,y))
+	trails = [[point] for point in starts]
+	for frame in range(frames):
+		for i in range(len(trails)):
+			trails[i].append(getNextPixelByAngle(trails[i][-1]))
+	filled_points = [set() for frame in range(frames)]
+	for frame in range(frames):
+		filled_points.append(reduce(or_,[set(trail[:frame + 1]) for trail in trails]))
+	return Video(
+		frames,
+		size,
+		lambda t,x,y : magnitudes[y] if (x,y) in filled_points[t] else 0
+	)
 def randPoint(rng) -> Point:
 	return (
 		rng.randint(0,GRID_SIZE),
@@ -677,12 +747,12 @@ def addColor(trn: dict[str,Image]) -> None:
 	keys = list(trn.keys())
 	for k in keys:
 		print(f"adding color to {k}...")
-		if isinstance(trn[k][0,0],bool):
+		if isinstance(trn[k].first(),bool):
 			trn[k] = scrMap(
 				lambda v : (255,255,255) if v else (0,0,0),
 				trn[k],
 			)
-		elif isinstance(trn[k][0,0],int|float):
+		elif isinstance(trn[k].first(),int|float):
 			if RANGE[k] == Interval(0,255):
 				trn[k] = scrMap(
 					lambda v : (int(v),int(v),int(v)),
@@ -695,69 +765,58 @@ def addColor(trn: dict[str,Image]) -> None:
 					lambda v : (int(v),int(v),int(v)),
 					trn[k].scale(RANGE[k].min,RANGE[k].max,0,255),
 				)
-		elif isinstance(trn[k][0,0],tuple) and len(trn[k][0,0]) == 2:
+		elif isinstance(trn[k].first(),tuple) and len(trn[k].first()) == 2:
 			trn[k] = scrMap(
 				lambda v : pointToColor(v),
 				trn[k],
 			)
-def redBlueScale(value: int|float) -> int:
-	return int(value) << 16 | (255 - int(value))
-def intToColor(value: int|float) -> Color:
-	return (
-		(int(value) >> 16) & 0xFF,
-		(int(value) >> 8) & 0xFF,
-		int(value) & 0xFF,
-	)
-def storeTerrainValues(terrain: dict[str,Image]) -> None:
-	for name in terrain:
-		storeTerrain(name,terrain[name])
-def storeTerrain(name: str,terrain: Image|Video) -> None:
-	print(f"storing {name}...")
-	i = 0
-	filename = Path(f"terrain/{name}_{i}.json")
-	while filename.is_file():
-		with open(filename,mode = 'r') as f:
-			content = json.loads(f.read())
-		if content['arguments'] != ARGUMENTS[name]:
-			i += 1
-			filename = Path(f"terrain/{name}_{i}.json")
+def storeTerrainValues(terrainValues: dict[str,Image|Video]) -> None:
+	for name,terrain in terrainValues.items():
+		filename = Path(f"terrain/{name}.json")
+		if isinstance(terrain,Image):
+			with open(filename,mode = 'w') as f:
+				f.write(json.dumps({
+					'arguments' : ARGUMENTS[name],
+					'type' : 'Image',
+					'terrain' : [[terrain[x,y] for y in range(terrain.size)] for x in range(terrain.size)]
+				}))
+		elif isinstance(terrain,Video):
+			with open(filename,mode = 'w') as f:
+				f.write(json.dumps({
+					'arguments' : ARGUMENTS[name],
+					'type' : 'Video',
+					'terrain' : [[[terrain[t,x,y] for y in range(terrain.size)] for x in range(terrain.size)] for t in range(terrain.length)]
+				}))
 		else:
-			return
-	if isinstance(terrain,Image):
-		with open(filename,mode = 'w') as f:
-			f.write(json.dumps({
-				'arguments' : ARGUMENTS[name],
-				'type' : 'Image',
-				'terrain' : [[terrain[x,y] for y in range(terrain.size)] for x in range(terrain.size)]
-			}))
-	elif isinstance(terrain,Video):
-		with open(filename,mode = 'w') as f:
-			f.write(json.dumps({
-				'arguments' : ARGUMENTS[name],
-				'type' : 'Video',
-				'terrain' : [[[terrain[x,y,t] for y in range(terrain.size)] for x in range(terrain.size)] for t in range(terrain.length)]
-			}))
-	else:
-		raise TypeError
+			raise TypeError(f"Attempting to store object of type {type(terrain).__name__}")
 def loadTerrainValues() -> dict[str,Image]:
 	terrain = {}
 	for entry in TERRAIN_DIRECTORY.iterdir():
 		if not entry.is_file(): continue
-		name = '_'.join(entry.name.split('_')[:-1])
 		content = loadTerrain(entry)
-		if content['arguments'] == ARGUMENTS[name]:
+		if content['arguments'] == ARGUMENTS[entry.stem]:
 			match content['type']:
 				case 'Image':
-					terrain[name] = Image(
+					terrain[entry.stem] = Image(
 						len(content['terrain']),
 						lambda x,y : content['terrain'][x][y],
+					)
+				case 'Video':
+					terrain[entry.stem] = Video(
+						len(content['terrain']),
+						len(content['terrain'][0]),
+						lambda t,x,y : content['terrain'][t][x][y],
 					)
 				case _:
 					raise TypeError
 	return terrain
 def loadTerrain(filename: Path) -> dict[str,list|dict]:
 	with open(filename,mode = 'r') as f:
-		content = json.loads(f.read())
+		try:
+			content = json.loads(f.read())
+		except:
+			print(f"Error in file {filename}")
+			raise
 	return content
 def getDependentTerrains(name: str) -> set[str]:
 	args = set()
@@ -775,17 +834,16 @@ def clearCache() -> None:
 	for entry in TERRAIN_DIRECTORY.iterdir():
 		entry.unlink()
 
+#clearCache()
 TERRAIN = loadTerrainValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
 amplitudes = [0.5**i for i in range(TERRAIN_NOISE_OCTAVES)]
 total_amplitude = sum(amplitudes)
-
-clearCache()
 for i in range(TERRAIN_NOISE_OCTAVES):
-	str_val_0 = f"perlin noise 0 {i}"
-	str_val_1 = f"perlin noise 1 {i}"
-	str_val_2 = f"perlin noise 2 {i}"
+	str_val_0 = f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
+	str_val_1 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
+	str_val_2 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
 	if str_val_0 not in TERRAIN:
 		TERRAIN[str_val_0] = perlinNoise(
 			size = GRID_SIZE,
@@ -798,7 +856,7 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 	if str_val_1 not in TERRAIN:
 		TERRAIN[str_val_1] = perlinNoise(
 			size = GRID_SIZE,
-			seed = NOISE_SEED,
+			seed = NOISE_SEED + 1,
 			scale = TERRAIN_NOISE_SCALE,
 			frequency = FREQUENCIES[i],
 		)
@@ -807,61 +865,24 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 	if str_val_2 not in TERRAIN:
 		TERRAIN[str_val_2] = perlinNoise(
 			size = GRID_SIZE,
-			seed = NOISE_SEED,
+			seed = NOISE_SEED + 2,
 			scale = TERRAIN_NOISE_SCALE,
 			frequency = FREQUENCIES[i],
 		)
 		cleanMapping(str_val_2,TERRAIN)
 	RANGE[str_val_2] = Interval(-1,1)
-if 'perlin noise 0' not in TERRAIN:
-	print('generating perlin noise 0...')
-	'''
-	TERRAIN['perlin noise 0']: Image[float] = sum(
-		TERRAIN[f"perlin noise 0 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
-	) / total_amplitude
-	'''
-	TERRAIN['perlin noise 0']: Image[float] = layeredPerlinNoise(
-		size = GRID_SIZE,
-		seed = NOISE_SEED,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	)
-	cleanMapping('perlin noise 0',TERRAIN)
-RANGE['perlin noise 0'] = Interval(-1,1)
-if 'perlin noise 1' not in TERRAIN:
-	print('generating perlin noise 1...')
-	'''
-	TERRAIN['perlin noise 1']: Image[float] = sum(
-		TERRAIN[f"perlin noise 1 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
-	) / total_amplitude
-	'''
-
-	TERRAIN['perlin noise 1']: Image[float] = layeredPerlinNoise(
-		size = GRID_SIZE,
-		seed = NOISE_SEED + 1,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	)
-	cleanMapping('perlin noise 1',TERRAIN)
-RANGE['perlin noise 1'] = Interval(-1,1)
-if 'perlin noise 2' not in TERRAIN:
-	print('generating perlin noise 2...')
-	'''
-	TERRAIN['perlin noise 2']: Image[float] = sum(
-		TERRAIN[f"perlin noise 2 {i}"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
-	) / total_amplitude
-	'''
-	TERRAIN['perlin noise 2']: Image[float] = layeredPerlinNoise(
-		size = GRID_SIZE,
-		seed = NOISE_SEED + 2,
-		scale = TERRAIN_NOISE_SCALE,
-		octaves = TERRAIN_NOISE_OCTAVES,
-	)
-	cleanMapping('perlin noise 2',TERRAIN)
-RANGE['perlin noise 2'] = Interval(-1,1)
+perlin_noise_0: Image[float] = sum(
+	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+) / total_amplitude
+perlin_noise_1: Image[float] = sum(
+	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+) / total_amplitude
+perlin_noise_2: Image[float] = sum(
+	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+) / total_amplitude
 if 'overworld surface original' not in TERRAIN:
 	print('generating overworld surface original...')
-	TERRAIN['overworld surface original']: Image[float] = TERRAIN['perlin noise 0'].scale(-1,1,OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
+	TERRAIN['overworld surface original']: Image[float] = perlin_noise_0.scale(-1,1,OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
 	cleanMapping('overworld surface original',TERRAIN)
 RANGE['overworld surface original'] = Interval(OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
 if 'overworld land' not in TERRAIN:
@@ -876,11 +897,6 @@ if 'overworld land' not in TERRAIN:
 		seed = NOISE_SEED,
 		size = GRID_SIZE,
 	)
-	total = sum(len(b) for b in bodiesMap)
-	for points in bodiesMap:
-		if len(points) <= 0.1 * total:
-			for point in points:
-				TERRAIN['overworld land'][point] = True
 	cleanMapping('overworld land',TERRAIN)
 if 'overworld surface fluctuation' not in TERRAIN:
 	print('generating overworld surface fluctuation...')
@@ -918,12 +934,12 @@ if 'overworld surface' not in TERRAIN:
 RANGE['overworld surface'] = RANGE['overworld surface original']
 if 'overworld depth' not in TERRAIN:
 	print('generating overworld depth...')
-	TERRAIN['overworld depth']: Image[float] = TERRAIN['perlin noise 1'].scale(-1,1,OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
+	TERRAIN['overworld depth']: Image[float] = perlin_noise_1.scale(-1,1,OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
 	cleanMapping('overworld depth',TERRAIN)
 RANGE['overworld depth'] = Interval(OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
 if 'midworld surface' not in TERRAIN:
 	print('generating midworld surface...')
-	TERRAIN['midworld surface']: Image[float] = TERRAIN['perlin noise 2'].scale(-1,1,MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
+	TERRAIN['midworld surface']: Image[float] = perlin_noise_2.scale(-1,1,MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
 	cleanMapping('midworld surface',TERRAIN)
 RANGE['midworld surface'] = Interval(MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
 if 'overworld coastline land side' not in TERRAIN:
@@ -1088,6 +1104,43 @@ if 'overworld distance from sea level' not in TERRAIN:
 	TERRAIN['overworld distance from sea level']: Image[float] = abs(TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL)
 	cleanMapping('overworld distance from sea level',TERRAIN)
 RANGE['overworld distance from sea level'] = abs(RANGE['overworld surface'] - OVERWORLD_SEA_LEVEL)
+if 'overworld general wind magnitude' not in TERRAIN:
+	print('generating overworld general wind magnitude...')
+	TERRAIN['overworld general wind magnitude'] = Image(
+		GRID_SIZE,
+		lambda x,y : getGenWindMagnitude(y,GRID_SIZE),
+	)
+	cleanMapping('overworld general wind magnitude',TERRAIN)
+RANGE['overworld general wind magnitude'] = Interval(0,GRID_SIZE / 8)
+if 'overworld general wind angle' not in TERRAIN:
+	print('generating overworld general wind angle...')
+	TERRAIN['overworld general wind angle'] = Image(
+		GRID_SIZE,
+		lambda x,y : getGenWindAngle(y,GRID_SIZE),
+	)
+	cleanMapping('overworld general wind angle',TERRAIN)
+RANGE['overworld general wind angle'] = Interval(0,4 * pi)
+pressure_frames = []
+for i in range(WIND_FRAMES):
+	if f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}" not in TERRAIN:
+		pressure_frames.append(f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}")
+		TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"] = perlinNoise(
+			size = GRID_SIZE,
+			seed = NOISE_SEED + 3,
+			scale = 0.75,
+			frequency = 1,
+			t = T_VALUES[i],
+		)
+		cleanMapping(f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}",TERRAIN)
+	RANGE[f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"] = Interval(-1,1)
+if 'overworld pressure' not in TERRAIN:
+	TERRAIN['overworld pressure'] = Video(
+		WIND_FRAMES,
+		GRID_SIZE,
+	)
+	TERRAIN['overworld pressure'].values = [TERRAIN[pressure_frames[i]] for i in range(WIND_FRAMES)]
+	cleanMapping('overworld pressure',TERRAIN)
+RANGE['overworld pressure'] = Interval(-1,1)
 if 'overworld temperature' not in TERRAIN:
 	print('generating overworld temperature...')
 	TERRAIN['overworld temperature']: Image[float] = (TERRAIN['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - TERRAIN['overworld distance from sea level']))/2
@@ -1142,12 +1195,12 @@ if 'overworld temperature derivative x' not in TERRAIN:
 	print('generating overworld temperature derivative x...')
 	TERRAIN['overworld temperature derivative x']: Image[float] = (TERRAIN['overworld temperature derivative x+'] + TERRAIN['overworld temperature derivative x-'])/2
 	cleanMapping('overworld temperature derivative x',TERRAIN)
-RANGE['overworld temperature derivative x'] = (RANGE['overworld temperature derivative x+'] + RANGE['overworld temperature derivative x-'])/2
+RANGE['overworld temperature derivative x'] = (RANGE['overworld temperature derivative x+'] + RANGE['overworld temperature derivative x-']) / 2
 if 'overworld temperature derivative y' not in TERRAIN:
 	print('generating overworld temperature derivative y...')
 	TERRAIN['overworld temperature derivative y']: Image[float] = (TERRAIN['overworld temperature derivative y+'] + TERRAIN['overworld temperature derivative y-'])/2
 	cleanMapping('overworld temperature derivative y',TERRAIN)
-RANGE['overworld temperature derivative y'] = (RANGE['overworld temperature derivative y+'] + RANGE['overworld temperature derivative y-'])/2
+RANGE['overworld temperature derivative y'] = (RANGE['overworld temperature derivative y+'] + RANGE['overworld temperature derivative y-']) / 2
 if 'overworld-midworld connection edges' not in TERRAIN:
 	print('generating overworld-midworld connection edges...')
 	offsets = {
