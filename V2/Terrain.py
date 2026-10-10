@@ -26,6 +26,7 @@ from typing import (
 )
 from Dropdown import Dropdown
 from Interval import Interval
+from NoiseBlock import NoiseBlock
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
@@ -53,6 +54,9 @@ def getArguments(name: str,arguments: dict[str,dict]) -> dict[str,Any]:
 TERRAIN_DIRECTORY = Path('terrain')
 TERRAIN_DIRECTORY.mkdir(parents = True,exist_ok = True)
 
+NOISE_DIRECTORY = Path('noise')
+NOISE_DIRECTORY.mkdir(parents = True,exist_ok = True)
+
 GRID_SIZE: int = 256
 CELL_SIZE: int = 4
 OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
@@ -64,7 +68,8 @@ OVERWORLD_SUNLIGHT_RANGE: tuple[int,int] = (0,256)
 OVERWORLD_SEA_LEVEL_FACTOR = 0.55
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 TERRAIN_NOISE_SCALE: int = 1
-OVERWORLD_PRESSURE_SCALE: float = 0.5
+OVERWORLD_PRESSURE_SCALE: float = 0.75
+OVERWORLD_PRESSURE_FREQUENCY: int|float = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 500
 AXIS_TILT: float = 23.44 * tau/360
@@ -175,76 +180,15 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
 		},
 	},
-	'overworld true surface derivative x-' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld true surface derivative x+' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
 	'overworld true surface derivative x' : {
 		'terrain' : [
-			'overworld true surface derivative x+',
-			'overworld true surface derivative x-',
+			'overworld true surface',
 		],
 		'nonterrain' : {},
-	},
-	'overworld true surface derivative y-' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld true surface derivative y+' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
 	},
 	'overworld true surface derivative y' : {
 		'terrain' : [
-			'overworld true surface derivative y+',
-			'overworld true surface derivative y-',
-		],
-		'nonterrain' : {},
-	},
-	'overworld surface normal magnitude' : {
-		'terrain' : [
-			'overworld true surface derivative x',
-			'overworld true surface derivative y',
-		],
-		'nonterrain' : {},
-	},
-	'overworld surface normal x' : {
-		'terrain' : [
-			'overworld true surface derivative x',
-			'overworld surface normal magnitude',
-		],
-		'nonterrain' : {},
-	},
-	'overworld surface normal y' : {
-		'terrain' : [
-			'overworld true surface derivative y',
-			'overworld surface normal magnitude',
-		],
-		'nonterrain' : {},
-	},
-	'overworld surface normal z' : {
-		'terrain' : [
-			'overworld surface normal magnitude',
+			'overworld true surface',
 		],
 		'nonterrain' : {},
 	},
@@ -334,49 +278,15 @@ ARGS: dict[str,dict] = {
 			'SNOW_LEVEL' : SNOW_LEVEL,
 		},
 	},
-	'overworld temperature derivative x+' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld temperature derivative x-' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld temperature derivative y+' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld temperature derivative y-' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
 	'overworld temperature derivative x' : {
 		'terrain' : [
-			'overworld temperature derivative x+',
-			'overworld temperature derivative x-',
+			'overworld temperature',
 		],
 		'nonterrain' : {},
 	},
 	'overworld temperature derivative y' : {
 		'terrain' : [
-			'overworld temperature derivative y+',
-			'overworld temperature derivative y-',
+			'overworld temperature',
 		],
 		'nonterrain' : {},
 	},
@@ -461,56 +371,55 @@ ARGS: dict[str,dict] = {
 		},
 	},
 }
+NOISE_DEPENDENCIES = set()
+NOISE_MAP = {}
 for i in range(TERRAIN_NOISE_OCTAVES):
-	str_val_0 = f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	str_val_1 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	str_val_2 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	ARGS[str_val_0] = {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'NOISE_SEED0' : NOISE_SEED,
-			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
-			f"FREQUENCY0_{i}" : FREQUENCIES[i],
-			f"t0_{i}" : 0,
-		},
+	NOISE_DEPENDENCIES |= {
+		(
+			'overworld surface original',
+			NoiseBlock(
+				dimensions = 4,
+				size = GRID_SIZE,
+				seed = NOISE_SEED,
+				scale = TERRAIN_NOISE_SCALE,
+				frequency = FREQUENCIES[i],
+				time = 0,
+			),
+		),(
+			'overworld depth',
+			NoiseBlock(
+				dimensions = 4,
+				size = GRID_SIZE,
+				seed = NOISE_SEED + 1,
+				scale = TERRAIN_NOISE_SCALE,
+				frequency = FREQUENCIES[i],
+				time = 0,
+			),
+		),(
+			'midworld surface',
+			NoiseBlock(
+				dimensions = 4,
+				size = GRID_SIZE,
+				seed = NOISE_SEED + 2,
+				scale = TERRAIN_NOISE_SCALE,
+				frequency = FREQUENCIES[i],
+				time = 0,
+			),
+		),
 	}
-	ARGS['overworld surface original']['terrain'].append(str_val_0)
-	ARGS[str_val_1] = {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'NOISE_SEED1' : NOISE_SEED + 1,
-			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
-			f"FREQUENCY1_{i}" : FREQUENCIES[i],
-			f"t1_{i}" : 0,
-		},
-	}
-	ARGS['overworld depth']['terrain'].append(str_val_1)
-	ARGS[str_val_2] = {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'NOISE_SEED2' : NOISE_SEED + 2,
-			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
-			f"FREQUENCY1_{2}" : FREQUENCIES[2],
-			f"t2_{i}" : 0,
-		},
-	}
-	ARGS['midworld surface']['terrain'].append(str_val_2)
-for i in range(WIND_FRAMES):
-	name = f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"
-	ARGS['overworld pressure']['terrain'].append(name)
-	ARGS[name] = {
-		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'NOISE_SEED3' : NOISE_SEED + 3,
-			'TERRAIN_NOISE_SCALE_PRESSURE' : 0.75,
-			f"FREQUENCY3_{i}" : 1,
-			f"t3_{i}" : T_VALUES[i],
-		},
-	}
+NOISE_DEPENDENCIES.add(
+	(
+		'overworld pressure',
+		NoiseBlock(
+			dimensions = 4,
+			size = GRID_SIZE,
+			seed = NOISE_SEED + 3,
+			scale = OVERWORLD_PRESSURE_SCALE,
+			frequency = OVERWORLD_PRESSURE_FREQUENCY,
+			time = 0,
+		),
+	)
+)
 ARGUMENTS: dict = {name : getArguments(name,ARGS) for name in ARGS}
 
 RANGE: dict[str,Interval] = {}
@@ -553,8 +462,9 @@ def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int
 		perlinNoise(size,seed,scale,frequency) * amplitude for frequency,amplitude in zip(frequencies,amplitudes)
 	]
 	return sum(layers) / sum(amplitudes)
-def perlinNoise(size: int,seed: int,scale: int,frequency: float,t: int|float = 0) -> Image[float]:
+def perlinNoise(block: NoiseBlock) -> Image[float]:
 	print('generating perlin noise layer...')
+	dimensions,size,seed,scale,frequency,time = tuple(block)
 	factor: float = tau / size
 	x: Image[int] = Image(size,lambda x,y : x) * factor
 	y: Image[int] = Image(size,lambda x,y : y) * factor
@@ -567,7 +477,11 @@ def perlinNoise(size: int,seed: int,scale: int,frequency: float,t: int|float = 0
 	ny: Image[float] = sin_x * frequency
 	nz: Image[float] = cos_y * frequency
 	nw: Image[float] = sin_y * frequency + seed
-	return scrMap(perlin4,nx,ny,nz + t,nw)
+	match dimensions:
+		case 4: function = perlin4
+		case 5: function = perlin5
+		case _: raise TypeError(f"dimensions = {dimensions}")
+	return scrMap(function,nx,ny,nz + time,nw)
 def dimensions(value):
 	if isinstance(value,list):
 		if len(value) == 0:
@@ -832,55 +746,125 @@ def cleanMapping(name: str,terrain: dict[str,Image]) -> None:
 		if n in terrain:
 			print(f"need to regenerate {n}...")
 			del terrain[n]
+def cleanNoiseMapping(block: NoiseBlock,terrain: dict[str,Image]) -> None:
+	for name,noise in NOISE_DEPENDENCIES:
+		if noise != block or name not in terrain: continue
+		del terrain[name]
 def clearCache() -> None:
 	for entry in TERRAIN_DIRECTORY.iterdir():
 		entry.unlink()
+def jsonToNoise(value: dict):
+	size = len(value['noise'])
+	return {
+		'args' : NoiseBlock(**value['args']),
+		'noise' : Image(
+			size,
+			lambda x,y : value['noise'][x][y],
+		),
+	}
+def noiseToJson(block: NoiseBlock) -> dict:
+	return {
+		'args' : {
+			'dimensions' : block.dimensions,
+			'size' : block.size,
+			'seed' : block.seed,
+			'scale' : block.scale,
+			'frequency' : block.frequency,
+			'time' : block.time,
+		},
+		'noise' : [
+			[
+				noise[x,y] for y in range(noise.size)
+			] for x in range(noise.size)
+		],
+	}
+def loadNoiseValues() -> dict[NoiseBlock,Image[float]]:
+	values = {}
+	for entry in NOISE_DIRECTORY.iterdir():
+		with open(entry,mode = 'r',newline = '') as f:
+			content = jsonToNoise(json.loads(f.read()))
+		values[content['args']] = content['noise']
+	return values
+def getNoise(block: NoiseBlock) -> None:
+	noise = perlinNoise(block)
+	content = json.dumps(noiseToJson(block))
+	filename = (NOISE_DIRECTORY / str(hash(block))) + '.json'
+	with open(filename,mode = 'w') as f:
+		f.write(content)
+	return noise
 
-clearCache()
+#clearCache()
 TERRAIN = loadTerrainValues()
+NOISE = loadNoiseValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
 amplitudes = [0.5**i for i in range(TERRAIN_NOISE_OCTAVES)]
 total_amplitude = sum(amplitudes)
 for i in range(TERRAIN_NOISE_OCTAVES):
-	str_val_0 = f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	str_val_1 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	str_val_2 = f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"
-	if str_val_0 not in TERRAIN:
-		TERRAIN[str_val_0] = perlinNoise(
-			size = GRID_SIZE,
-			seed = NOISE_SEED,
-			scale = TERRAIN_NOISE_SCALE,
-			frequency = FREQUENCIES[i],
-		)
-		cleanMapping(str_val_0,TERRAIN)
-	RANGE[str_val_0] = Interval(-1,1)
-	if str_val_1 not in TERRAIN:
-		TERRAIN[str_val_1] = perlinNoise(
-			size = GRID_SIZE,
-			seed = NOISE_SEED + 1,
-			scale = TERRAIN_NOISE_SCALE,
-			frequency = FREQUENCIES[i],
-		)
-		cleanMapping(str_val_1,TERRAIN)
-	RANGE[str_val_1] = Interval(-1,1)
-	if str_val_2 not in TERRAIN:
-		TERRAIN[str_val_2] = perlinNoise(
-			size = GRID_SIZE,
-			seed = NOISE_SEED + 2,
-			scale = TERRAIN_NOISE_SCALE,
-			frequency = FREQUENCIES[i],
-		)
-		cleanMapping(str_val_2,TERRAIN)
-	RANGE[str_val_2] = Interval(-1,1)
+	block0 = NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)
+	block1 = NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 1,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)
+	block2 = NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 2,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)
+	if block0 not in NOISE_MAP:
+		NOISE_MAP[block0] = perlinNoise(block0)
+		cleanNoiseMapping(block0,TERRAIN)
+	if block1 not in NOISE_MAP:
+		NOISE_MAP[block1] = perlinNoise(block1)
+		cleanNoiseMapping(block1,TERRAIN)
+	if block2 not in NOISE_MAP:
+		NOISE_MAP[block2] = perlinNoise(block2)
+		cleanNoiseMapping(block2,TERRAIN)
+for key in NOISE_MAP:
+	print(key)
 perlin_noise_0: Image[float] = sum(
-	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+	NOISE_MAP[NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 ) / total_amplitude
 perlin_noise_1: Image[float] = sum(
-	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 1} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+	NOISE_MAP[NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 1,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 ) / total_amplitude
 perlin_noise_2: Image[float] = sum(
-	TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 2} {TERRAIN_NOISE_SCALE} {FREQUENCIES[i]} 0"] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+	NOISE_MAP[NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 2,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 ) / total_amplitude
 if 'overworld surface original' not in TERRAIN:
 	print('generating overworld surface original...')
@@ -946,7 +930,7 @@ if 'midworld surface' not in TERRAIN:
 RANGE['midworld surface'] = Interval(MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
 if 'overworld coastline land side' not in TERRAIN:
 	print('generating overworld coastline land side...')
-	x = Image(
+	TERRAIN['overworld coastline land side']: Image[bool] = TERRAIN['overworld land'] & Image(
 		GRID_SIZE,
 		lambda x,y : not all(
 			TERRAIN['overworld land'][
@@ -955,11 +939,10 @@ if 'overworld coastline land side' not in TERRAIN:
 			] for i in range(-1,2) for j in range(-1,2)
 		),
 	)
-	TERRAIN['overworld coastline land side']: Image[bool] = TERRAIN['overworld land'] & x
 	cleanMapping('overworld coastline land side',TERRAIN)
 if 'overworld coastline water side' not in TERRAIN:
 	print('generating overworld coastline water side...')
-	x = Image(
+	TERRAIN['overworld coastline water side']: Image[bool] = ~TERRAIN['overworld land'] & Image(
 		GRID_SIZE,
 		lambda x,y : any(
 			TERRAIN['overworld land'][
@@ -968,7 +951,6 @@ if 'overworld coastline water side' not in TERRAIN:
 			] for i in range(-1,2) for j in range(-1,2)
 		),
 	)
-	TERRAIN['overworld coastline water side']: Image[bool] = ~TERRAIN['overworld land'] & x
 	cleanMapping('overworld coastline water side',TERRAIN)
 if 'overworld coastline' not in TERRAIN:
 	print('generating overworld coastline...')
@@ -1002,68 +984,44 @@ if 'overworld true surface' not in TERRAIN:
 	)
 	cleanMapping('overworld true surface',TERRAIN)
 RANGE['overworld true surface'] = RANGE['overworld surface'] | OVERWORLD_SEA_LEVEL
-if 'overworld true surface derivative x-' not in TERRAIN:
-	print('generating overworld true surface derivative x-...')
-	TERRAIN['overworld true surface derivative x-']: Image[float] = Image(
+if 'overworld true surface derivative x' not in TERRAIN:
+	dx1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y],
 	)
-	cleanMapping('overworld true surface derivative x-',TERRAIN)
-RANGE['overworld true surface derivative x-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld true surface derivative x+' not in TERRAIN:
-	print('generating overworld true surface derivative x+...')
-	TERRAIN['overworld true surface derivative x+']: Image[float] = Image(
+	dx2: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][x,y],
 	)
-	cleanMapping('overworld true surface derivative x+',TERRAIN)
-RANGE['overworld true surface derivative x+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld true surface derivative x' not in TERRAIN:
 	print('generating overworld true surface derivative x...')
-	TERRAIN['overworld true surface derivative x']: Image[float] = (TERRAIN['overworld true surface derivative x-'] + TERRAIN['overworld true surface derivative x+']) / 2
+	TERRAIN['overworld true surface derivative x']: Image[float] = (dx1 + dx2) / 2
 	cleanMapping('overworld true surface derivative x',TERRAIN)
-RANGE['overworld true surface derivative x'] = (RANGE['overworld true surface derivative x-'] + RANGE['overworld true surface derivative x+']) / 2
-if 'overworld true surface derivative y-' not in TERRAIN:
-	print('generating overworld true surface derivative y-...')
-	TERRAIN['overworld true surface derivative y-']: Image[float] = Image(
+RANGE['overworld true surface derivative x'] = (
+	(
+		RANGE['overworld true surface'] - RANGE['overworld true surface']
+	) + (
+		RANGE['overworld true surface'] - RANGE['overworld true surface']
+	)
+) / 2
+if 'overworld true surface derivative y' not in TERRAIN:
+	print('generating overworld true surface derivative y...')
+	dy1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE],
 	)
-	cleanMapping('overworld true surface derivative y-',TERRAIN)
-RANGE['overworld true surface derivative y-'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld true surface derivative y+' not in TERRAIN:
-	print('generating overworld true surface derivative y+...')
-	TERRAIN['overworld true surface derivative y+']: Image[float] = Image(
+	dy2: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,y],
 	)
-	cleanMapping('overworld true surface derivative y+',TERRAIN)
-RANGE['overworld true surface derivative y+'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld true surface derivative y' not in TERRAIN:
-	print('generating overworld true surface derivative y...')
-	TERRAIN['overworld true surface derivative y'] = (TERRAIN['overworld true surface derivative y-'] + TERRAIN['overworld true surface derivative y+']) / 2
+	TERRAIN['overworld true surface derivative y'] = (dy1 + dy2) / 2
 	cleanMapping('overworld true surface derivative y',TERRAIN)
-RANGE['overworld true surface derivative y'] = (RANGE['overworld true surface derivative y-'] + RANGE['overworld true surface derivative y+']) / 2
-if 'overworld surface normal magnitude' not in TERRAIN:
-	print('generating overworld surface normal magnitude...')
-	TERRAIN['overworld surface normal magnitude']: Image[float] = (1 + TERRAIN['overworld true surface derivative x']**2 + TERRAIN['overworld true surface derivative y']**2)**0.5
-	cleanMapping('overworld surface normal magnitude',TERRAIN)
-RANGE['overworld surface normal magnitude'] = (1 + RANGE['overworld true surface derivative x']**2 + RANGE['overworld true surface derivative y']**2)**0.5
-if 'overworld surface normal x' not in TERRAIN:
-	print('generating overworld surface normal x...')
-	TERRAIN['overworld surface normal x']: Image[float] = -TERRAIN['overworld true surface derivative x'] / TERRAIN['overworld surface normal magnitude']
-	cleanMapping('overworld surface normal x',TERRAIN)
-RANGE['overworld surface normal x'] = -RANGE['overworld true surface derivative x'] / RANGE['overworld surface normal magnitude']
-if 'overworld surface normal y' not in TERRAIN:
-	print('generating overworld surface normal y...')
-	TERRAIN['overworld surface normal y']: Image[float] = -TERRAIN['overworld true surface derivative y'] / TERRAIN['overworld surface normal magnitude']
-	cleanMapping('overworld surface normal y',TERRAIN)
-RANGE['overworld surface normal y'] = -RANGE['overworld true surface derivative y'] / RANGE['overworld surface normal magnitude']
-if 'overworld surface normal z' not in TERRAIN:
-	print('generating overworld surface normal z...')
-	TERRAIN['overworld surface normal z']: Image[float] = 1 / TERRAIN['overworld surface normal magnitude']
-	cleanMapping('overworld surface normal z',TERRAIN)
-RANGE['overworld surface normal z'] = 1 / RANGE['overworld surface normal magnitude']
+RANGE['overworld true surface derivative y'] = (
+	(
+		RANGE['overworld true surface'] - RANGE['overworld true surface']
+	) + (
+		RANGE['overworld true surface'] - RANGE['overworld true surface']
+	)
+) / 2
 if 'midworld land' not in TERRAIN:
 	print('generating midworld land...')
 	TERRAIN['midworld land']: Image[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
@@ -1123,24 +1081,19 @@ if 'overworld general wind angle' not in TERRAIN:
 	cleanMapping('overworld general wind angle',TERRAIN)
 RANGE['overworld general wind angle'] = Interval(0,4 * pi)
 pressure_frames = []
-for i in range(WIND_FRAMES):
-	if f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}" not in TERRAIN:
-		pressure_frames.append(f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}")
-		TERRAIN[f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"] = perlinNoise(
-			size = GRID_SIZE,
-			seed = NOISE_SEED + 3,
-			scale = 0.75,
-			frequency = 1,
-			t = T_VALUES[i],
-		)
-		cleanMapping(f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}",TERRAIN)
-	RANGE[f"perlin noise {GRID_SIZE} {NOISE_SEED + 3} 0.75 1 {T_VALUES[i]}"] = Interval(-1,1)
+block = NoiseBlock(
+	dimensions = 4,
+	size = GRID_SIZE,
+	seed = NOISE_SEED + 3,
+	scale = OVERWORLD_PRESSURE_SCALE,
+	frequency = OVERWORLD_PRESSURE_FREQUENCY,
+	time = 0
+)
+if block not in NOISE_MAP:
+	NOISE_MAP[block] = perlinNoise(block)
+	cleanNoiseMapping(block,TERRAIN)
 if 'overworld pressure' not in TERRAIN:
-	TERRAIN['overworld pressure'] = Video(
-		WIND_FRAMES,
-		GRID_SIZE,
-	)
-	TERRAIN['overworld pressure'].values = [TERRAIN[pressure_frames[i]] for i in range(WIND_FRAMES)]
+	TERRAIN['overworld pressure'] = NOISE_MAP[block]
 	cleanMapping('overworld pressure',TERRAIN)
 print(f"{len(TERRAIN['overworld pressure'].values)}x{len(TERRAIN['overworld pressure'].values[0].values)}x{len(TERRAIN['overworld pressure'].values[0].values[0])}")
 RANGE['overworld pressure'] = Interval(-1,1)
@@ -1162,48 +1115,44 @@ if 'snow' not in TERRAIN:
 	print('generating snow...')
 	TERRAIN['snow']: Image[bool] = TERRAIN['overworld temperature'] <= SNOW_LEVEL
 	cleanMapping('snow',TERRAIN)
-if 'overworld temperature derivative x+' not in TERRAIN:
-	print('generating overworld temperature derivative x+...')
-	TERRAIN['overworld temperature derivative x+']: Image[float] = Image(
+if 'overworld temperature derivative x' not in TERRAIN:
+	print('generating overworld temperature derivative x...')
+	dx1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
 	)
-	cleanMapping('overworld temperature derivative x+',TERRAIN)
-RANGE['overworld temperature derivative x+'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
-if 'overworld temperature derivative y+' not in TERRAIN:
-	print('generating overworld temperature derivative y+...')
-	TERRAIN['overworld temperature derivative y+']: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
-	)
-	cleanMapping('overworld temperature derivative y+',TERRAIN)
-RANGE['overworld temperature derivative y+'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
-if 'overworld temperature derivative x-' not in TERRAIN:
-	print('generating overworld temperature derivative x-...')
-	TERRAIN['overworld temperature derivative x-']: Image[float] = Image(
+	dx2: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][(x - 1) % GRID_SIZE,y],
 	)
-	cleanMapping('overworld temperature derivative x-',TERRAIN)
-RANGE['overworld temperature derivative x-'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
-if 'overworld temperature derivative y-' not in TERRAIN:
-	print('generating overworld temperature derivative y-...')
-	TERRAIN['overworld temperature derivative y-']: Image[float] = Image(
+	TERRAIN['overworld temperature derivative x']: Image[float] = (dx1 + dx2)/2
+	cleanMapping('overworld temperature derivative x',TERRAIN)
+RANGE['overworld temperature derivative x'] = (
+	(
+		RANGE['overworld temperature'] - RANGE['overworld temperature']
+	) + (
+		RANGE['overworld temperature'] - RANGE['overworld temperature']
+	)
+) / 2
+if 'overworld temperature derivative y' not in TERRAIN:
+	print('generating overworld temperature derivative y...')
+	dy1: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
+	)
+	dy2: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][x,(y - 1) % GRID_SIZE],
 	)
-	cleanMapping('overworld temperature derivative y-',TERRAIN)
-RANGE['overworld temperature derivative y-'] = RANGE['overworld temperature'] - RANGE['overworld temperature']
-if 'overworld temperature derivative x' not in TERRAIN:
-	print('generating overworld temperature derivative x...')
-	TERRAIN['overworld temperature derivative x']: Image[float] = (TERRAIN['overworld temperature derivative x+'] + TERRAIN['overworld temperature derivative x-'])/2
-	cleanMapping('overworld temperature derivative x',TERRAIN)
-RANGE['overworld temperature derivative x'] = (RANGE['overworld temperature derivative x+'] + RANGE['overworld temperature derivative x-']) / 2
-if 'overworld temperature derivative y' not in TERRAIN:
-	print('generating overworld temperature derivative y...')
-	TERRAIN['overworld temperature derivative y']: Image[float] = (TERRAIN['overworld temperature derivative y+'] + TERRAIN['overworld temperature derivative y-'])/2
+	TERRAIN['overworld temperature derivative y']: Image[float] = (dy1 + dy2)/2
 	cleanMapping('overworld temperature derivative y',TERRAIN)
-RANGE['overworld temperature derivative y'] = (RANGE['overworld temperature derivative y+'] + RANGE['overworld temperature derivative y-']) / 2
+RANGE['overworld temperature derivative y'] = (
+	(
+		RANGE['overworld temperature'] - RANGE['overworld temperature']
+	) + (
+		RANGE['overworld temperature'] - RANGE['overworld temperature']
+	)
+) / 2
 if 'overworld-midworld connection edges' not in TERRAIN:
 	print('generating overworld-midworld connection edges...')
 	offsets = {
@@ -1304,28 +1253,6 @@ if 'midworld greenery' not in TERRAIN:
 	)
 	cleanMapping('midworld greenery',TERRAIN)
 RANGE['midworld greenery'] = Interval(0,(1 << 24) - 1)
-if 'overworld cloud density' not in TERRAIN:
-	print('generating overworld cloud density...')
-	TERRAIN['overworld cloud density']: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : OVERWORLD_CLOUD_DENSITY_STRENGTH*e**(
-			-(
-				(
-					(
-						2/OVERWORLD_CLOUD_DENSITY_WIDTH
-					)*(
-						y - GRID_SIZE / 2
-					)
-				)**2
-			)
-		),
-	)
-	cleanMapping('overworld cloud density',TERRAIN)
-values = {v for v in TERRAIN['overworld cloud density']}
-RANGE['overworld cloud density'] = Interval(
-	min(values),
-	max(values),
-)
 
 storeTerrainValues(TERRAIN)
 
