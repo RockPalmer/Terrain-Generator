@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+'''
+Let set R,S
+
+T = R + S
+min(T) = min(R) + min(S)
+max(T) = max(R) + max(S)
+
+T = R - S
+min(T) = min(R) - max(S)
+max(T) = max(R) - min(S)
+'''
+
 class Interval:
 	def __init__(self,min,max) -> None:
 		self.min = min
@@ -74,7 +86,7 @@ class Interval:
 				other,
 				self.max,
 			)
-		if other > self.min:
+		if other > self.max:
 			return Interval(
 				self.min,
 				other,

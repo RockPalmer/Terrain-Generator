@@ -11,13 +11,13 @@ from math import (
 
 '''
 (+t,0,0,0):
-	x = 0 -> 64
+	x = 0 -> 1/2
 (0,+t,0,0):
-	x = 32 -> 96
+	x = 1/3 -> 2/3
 (0,0,+t,0):
-	y = 0 -> 64
+	y = 0 -> 1/2
 (0,0,0,+t):
-	y = 32 -> 96
+	y = 1/3 -> 2/3
 '''
 
 class PerlinGenerator:
@@ -42,7 +42,7 @@ class PerlinGenerator:
 					ny = sin(angle_x) * self.scale * frequency
 					nz = cos(angle_y) * self.scale * frequency
 					nw = sin(angle_y) * self.scale * frequency + self.seed_offset
-					sample = perlin4(nx,ny,nz + t,nw)
+					sample = perlin4(nx,ny,nz,nw)
 					value += sample * amplitude
 					amplitude_sum += amplitude
 					amplitude *= 0.5

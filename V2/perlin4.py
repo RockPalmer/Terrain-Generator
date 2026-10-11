@@ -1,5 +1,6 @@
 import math
 import random
+from itertools import product
 
 # Permutation table
 _perm = list(range(256))

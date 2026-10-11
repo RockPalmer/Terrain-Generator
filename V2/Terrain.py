@@ -1,6 +1,8 @@
 import pygame,random,json
-from perlin5 import perlin5
 from perlin4 import perlin4
+from perlin5 import perlin5
+from perlin6 import perlin6
+from perlin import perlin
 from Image import Image
 from Video import Video
 from PerlinGenerator import PerlinGenerator
@@ -27,6 +29,7 @@ from typing import (
 from Dropdown import Dropdown
 from Interval import Interval
 from NoiseBlock import NoiseBlock
+from collections import deque
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
@@ -142,43 +145,31 @@ ARGS: dict[str,dict] = {
 			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_MAX,
 		},
 	},
+	'overworld water' : {
+		'terrain' : [
+			'overworld surface',
+		],
+		'nonterrain' : {},
+	},
 	'overworld land' : {
 		'terrain' : [
-			'overworld surface original',
+			'overworld water',
 		],
-		'nonterrain' : {
-			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
-		},
-	},
-	'overworld bodies of water' : {
-		'terrain' : [
-			'overworld land',
-		],
-		'nonterrain' : {
-			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
-			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
-			'TERRAIN_NOISE_OCTAVES' : TERRAIN_NOISE_OCTAVES,
-			'TERRAIN_NOISE_SCALE' : TERRAIN_NOISE_SCALE,
-			'NOISE_SEED0' : NOISE_SEED,
-			'GRID_SIZE' : GRID_SIZE,
-		}
+		'nonterrain' : {},
 	},
 	'overworld surface' : {
 		'terrain' : [
 			'overworld surface original',
 			'overworld surface fluctuation',
-			'overworld land',
 		],
 		'nonterrain' : {},
 	},
 	'overworld true surface' : {
 		'terrain' : [
 			'overworld surface',
-			'overworld land',
+			'overworld water',
 		],
-		'nonterrain' : {
-			'OVERWORLD_SEA_LEVEL' : OVERWORLD_SEA_LEVEL,
-		},
+		'nonterrain' : {},
 	},
 	'overworld true surface derivative x' : {
 		'terrain' : [
@@ -463,12 +454,12 @@ def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int
 	]
 	return sum(layers) / sum(amplitudes)
 def perlinNoise(block: NoiseBlock) -> Image[float]:
-	print('generating perlin noise layer...')
+	print(f"generating {block}...")
 	dimensions,size,seed,scale,frequency,time = tuple(block)
 	factor: float = tau / size
+	zeros: Image[int] = Image(size,0)
 	x: Image[int] = Image(size,lambda x,y : x) * factor
 	y: Image[int] = Image(size,lambda x,y : y) * factor
-	zeros: Image[int] = Image(size,0)
 	cos_x: Image[float] = scrMap(cos,x) * scale
 	sin_x: Image[float] = scrMap(sin,x) * scale
 	cos_y: Image[float] = scrMap(cos,y) * scale
@@ -477,11 +468,7 @@ def perlinNoise(block: NoiseBlock) -> Image[float]:
 	ny: Image[float] = sin_x * frequency
 	nz: Image[float] = cos_y * frequency
 	nw: Image[float] = sin_y * frequency + seed
-	match dimensions:
-		case 4: function = perlin4
-		case 5: function = perlin5
-		case _: raise TypeError(f"dimensions = {dimensions}")
-	return scrMap(function,nx,ny,nz + time,nw)
+	return scrMap(perlin,nx,ny,nz + time,nw)
 def dimensions(value):
 	if isinstance(value,list):
 		if len(value) == 0:
@@ -659,33 +646,122 @@ def getBodiesOfWater(land: Image[bool],seaLevel: int|float,depthMax: int|float,o
 		else:
 			bodies.append({point})
 	return bodies
-def addColor(trn: dict[str,Image]) -> None:
-	keys = list(trn.keys())
-	for k in keys:
-		print(f"adding color to {k}...")
-		if isinstance(trn[k].first(),bool):
-			trn[k] = scrMap(
-				lambda v : (255,255,255) if v else (0,0,0),
-				trn[k],
+def getGraphDistance(start: Point,end: Point,points: set[Point],size: int):
+	def adj(p: Point) -> set[Point]:
+		a,b = p
+		offsets = {
+			(-1,0),
+			(1,0),
+			(0,-1),
+			(0,1),
+		}
+		for i,j in offsets:
+			pt = (
+				(a + i) % size,
+				(b + j) % size,
 			)
-		elif isinstance(trn[k].first(),int|float):
-			if RANGE[k] == Interval(0,255):
-				trn[k] = scrMap(
-					lambda v : (int(v),int(v),int(v)),
-					trn[k],
-				)
-			elif RANGE[k] == Interval(0,(1 << 24) - 1) or RANGE[k] == Interval(0,255 << 16):
-				trn[k] = scrMap(intToColor,trn[k])
+			if pt in points:
+				yield pt
+	dist = {p : -1 for p in points}
+	dist[start] = 0
+	q = deque([start])
+	while q:
+		node = q.popleft()
+		if node == end:
+			return dist[node]
+		for neighbor in adj(node):
+			if dist[neighbor] == -1:
+				dist[neighbor] = dist[node] + 1
+				q.append(neighbor)
+	return -1
+def getConnectedWater(point: Point,height: int|float,trn1: Image[int|float],trn2: Image[int|float],size: int) -> set[Point]:
+	stack = [point]
+	checked = {point}
+	found = {point}
+	while len(stack) != 0:
+		p = stack[0]
+		stack = stack[1:]
+		checked.add(p)
+		found.add(p)
+		neighbors = {n for n in getNeighbors(p,size) if trn1[n] + trn2[n] == height and n not in checked}
+		stack += list(neighbors)
+	return found
+def getConnected(point: Point,height: int|float,trn: Image[int|float],size: int) -> set[Point]:
+	stack = [point]
+	checked = {point}
+	found = {point}
+	while len(stack) != 0:
+		p = stack[0]
+		stack = stack[1:]
+		checked.add(p)
+		found.add(p)
+		neighbors = {n for n in getNeighbors(p,size) if trn[n] == height and n not in checked}
+		stack += list(neighbors)
+	return found
+def getNeighbors(point: Point,size: int) -> set[Point]:
+	x,y = point
+	return {
+		(
+			(x - 1) % size,
+			y,
+		),(
+			(x + 1) % size,
+			y,
+		),(
+			x,
+			(y - 1) % size,
+		),(
+			x,
+			(y + 1) % size,
+		)
+	}
+def flowWater(trn1: Image[int|float],trn2: Image[int|float],quant: int|float,point: Point,size: int) -> None:
+	#print(f">>{quant}")
+	while True:
+		h = trn1[point] + trn2[point]
+		connected = getConnected(point,h,trn1,trn2,size)
+		neighbors = reduce(
+			or_,[
+				getNeighbors(p,size) for p in connected
+			]
+		) - connected
+		lessThan = {p for p in neighbors if trn1[p] + trn2[p] < h}
+		if len(lessThan) > 0:
+			point = sorted(list(lessThan),key = lambda p : getGraphDistance(p,point,connected,size))[0]
+		else:
+			greaterThan = {trn1[p] + trn2[p] for p in neighbors if trn1[p] + trn2[p] > h}
+			if len(greaterThan) == 0:
+				return
+			nextHeight = min(greaterThan)
+			diff = nextHeight - h
+			if diff >= quant:
+				divided = quant/len(connected)
+				for p in connected:
+					trn2[p] += divided
+				return
 			else:
-				trn[k] = scrMap(
-					lambda v : (int(v),int(v),int(v)),
-					trn[k].scale(RANGE[k].min,RANGE[k].max,0,255),
-				)
-		elif isinstance(trn[k].first(),tuple) and len(trn[k].first()) == 2:
-			trn[k] = scrMap(
-				lambda v : pointToColor(v),
-				trn[k],
-			)
+				divided = diff/len(connected)
+				for p in connected:
+					trn2[p] += divided
+				quant -= diff
+				#print(f">>{quant}")
+def flow(src: Image[int|float],drn: Image[int|float],point: Point,size: int) -> None:
+	while True:
+		h = src[point]
+		connected = getConnected(point,h,src,size)
+		neighbors = reduce(
+			or_,[
+				getNeighbors(p,size) for p in connected
+			]
+		) - connected
+		lessThan = {p for p in neighbors if src[p] < h}
+		if len(lessThan) > 0:
+			point = sorted(list(lessThan),key = lambda p : getGraphDistance(p,point,connected,size))[0]
+		else:
+			amount = 255/len(connected)
+			for p in connected:
+				drn[p] += amount
+			return
 def storeTerrainValues(terrainValues: dict[str,Image|Video]) -> None:
 	for name,terrain in terrainValues.items():
 		filename = Path(f"terrain/{name}.json")
@@ -762,7 +838,7 @@ def jsonToNoise(value: dict):
 			lambda x,y : value['noise'][x][y],
 		),
 	}
-def noiseToJson(block: NoiseBlock) -> dict:
+def noiseToJson(noise: Image,block: NoiseBlock) -> dict:
 	return {
 		'args' : {
 			'dimensions' : block.dimensions,
@@ -783,23 +859,52 @@ def loadNoiseValues() -> dict[NoiseBlock,Image[float]]:
 	for entry in NOISE_DIRECTORY.iterdir():
 		with open(entry,mode = 'r',newline = '') as f:
 			content = jsonToNoise(json.loads(f.read()))
+		print(f"loaded {content['args']}")
 		values[content['args']] = content['noise']
 	return values
 def getNoise(block: NoiseBlock) -> None:
 	noise = perlinNoise(block)
-	content = json.dumps(noiseToJson(block))
-	filename = (NOISE_DIRECTORY / str(hash(block))) + '.json'
+	content = json.dumps(noiseToJson(noise,block))
+	filename = str(NOISE_DIRECTORY / str(hash(block))) + '.json'
 	with open(filename,mode = 'w') as f:
 		f.write(content)
 	return noise
+def addColor(trn: dict[str,Image]) -> None:
+	keys = list(trn.keys())
+	for k in keys:
+		print(f"adding color to {k}...")
+		if isinstance(trn[k].first(),bool):
+			trn[k] = scrMap(
+				lambda v : (255,255,255) if v else (0,0,0),
+				trn[k],
+			)
+		elif isinstance(trn[k].first(),int|float):
+			if RANGE[k] == Interval(0,255):
+				trn[k] = scrMap(
+					lambda v : (int(v),int(v),int(v)),
+					trn[k],
+				)
+			elif RANGE[k] == Interval(0,(1 << 24) - 1) or RANGE[k] == Interval(0,255 << 16):
+				trn[k] = scrMap(intToColor,trn[k])
+			else:
+				values = {v for v in trn[k]}
+				u = (min(values),max(values))
+				trn[k] = scrMap(
+					lambda v : (int(v),int(v),int(v)),
+					trn[k].scale(RANGE[k].min,RANGE[k].max,0,255),
+				)
+				values = {v for v in trn[k]}
+		elif isinstance(trn[k].first(),tuple) and len(trn[k].first()) == 2:
+			trn[k] = scrMap(
+				lambda v : pointToColor(v),
+				trn[k],
+			)
 
-#clearCache()
+clearCache()
 TERRAIN = loadTerrainValues()
-NOISE = loadNoiseValues()
+NOISE_MAP = loadNoiseValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
 
-amplitudes = [0.5**i for i in range(TERRAIN_NOISE_OCTAVES)]
-total_amplitude = sum(amplitudes)
 for i in range(TERRAIN_NOISE_OCTAVES):
 	block0 = NoiseBlock(
 		dimensions = 4,
@@ -826,16 +931,27 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 		time = 0,
 	)
 	if block0 not in NOISE_MAP:
-		NOISE_MAP[block0] = perlinNoise(block0)
+		NOISE_MAP[block0] = getNoise(block0)
 		cleanNoiseMapping(block0,TERRAIN)
 	if block1 not in NOISE_MAP:
-		NOISE_MAP[block1] = perlinNoise(block1)
+		NOISE_MAP[block1] = getNoise(block1)
 		cleanNoiseMapping(block1,TERRAIN)
 	if block2 not in NOISE_MAP:
-		NOISE_MAP[block2] = perlinNoise(block2)
+		NOISE_MAP[block2] = getNoise(block2)
 		cleanNoiseMapping(block2,TERRAIN)
-for key in NOISE_MAP:
-	print(key)
+pBlock = NoiseBlock(
+	dimensions = 4,
+	size = GRID_SIZE,
+	seed = NOISE_SEED + 3,
+	scale = OVERWORLD_PRESSURE_SCALE,
+	frequency = OVERWORLD_PRESSURE_FREQUENCY,
+	time = 0,
+)
+if pBlock not in NOISE_MAP:
+	NOISE_MAP[pBlock] = getNoise(pBlock)
+	cleanNoiseMapping(pBlock,TERRAIN)
+amplitudes = [0.5**i for i in range(TERRAIN_NOISE_OCTAVES)]
+total_amplitude = sum(amplitudes)
 perlin_noise_0: Image[float] = sum(
 	NOISE_MAP[NoiseBlock(
 		dimensions = 4,
@@ -871,19 +987,6 @@ if 'overworld surface original' not in TERRAIN:
 	TERRAIN['overworld surface original']: Image[float] = perlin_noise_0.scale(-1,1,OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
 	cleanMapping('overworld surface original',TERRAIN)
 RANGE['overworld surface original'] = Interval(OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
-if 'overworld land' not in TERRAIN:
-	print('generating overworld land...')
-	TERRAIN['overworld land']: Image[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
-	bodiesMap = getBodiesOfWater(
-		land = TERRAIN['overworld land'],
-		seaLevel = OVERWORLD_SEA_LEVEL,
-		depthMax = OVERWORLD_DEPTH_MAX,
-		octaves = TERRAIN_NOISE_OCTAVES,
-		scale = TERRAIN_NOISE_SCALE,
-		seed = NOISE_SEED,
-		size = GRID_SIZE,
-	)
-	cleanMapping('overworld land',TERRAIN)
 if 'overworld surface fluctuation' not in TERRAIN:
 	print('generating overworld surface fluctuation...')
 	TERRAIN['overworld surface fluctuation']: Image[float] = Image(
@@ -905,19 +1008,32 @@ if 'overworld surface fluctuation' not in TERRAIN:
 RANGE['overworld surface fluctuation'] = Interval(0,1)
 if 'overworld surface' not in TERRAIN:
 	print('generating overworld surface...')
-	TERRAIN['overworld surface']: Image[float] = ifMap(
-		(
-			(
-				TERRAIN['overworld surface original'] - OVERWORLD_SEA_LEVEL
-			) * (
-				1 + TERRAIN['overworld surface fluctuation']
-			) + OVERWORLD_SEA_LEVEL
-		),
-		TERRAIN['overworld land'],
-		TERRAIN['overworld surface original'],
+	'''
+	TERRAIN['overworld surface']: Image[float] = TERRAIN['overworld surface original'] * (
+		1 + TERRAIN['overworld surface fluctuation']
 	)
+	'''
+	TERRAIN['overworld surface']: Image[float] = TERRAIN['overworld surface original']
 	cleanMapping('overworld surface',TERRAIN)
 RANGE['overworld surface'] = RANGE['overworld surface original']
+if 'overworld water' not in TERRAIN:
+	print('generating overworld water...')
+	TERRAIN['overworld water']: Image[float] = Image(GRID_SIZE,0)
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			print((i,j))
+			flow(
+				TERRAIN['overworld surface'],
+				TERRAIN['overworld water'],
+				(i,j),
+				GRID_SIZE,
+			)
+	cleanMapping('overworld water',TERRAIN)
+RANGE['overworld water'] = Interval(TERRAIN['overworld water'].min(),TERRAIN['overworld water'].max())
+if 'overworld land' not in TERRAIN:
+	print('generating overworld land...')
+	TERRAIN['overworld land']: Image[bool] = TERRAIN['overworld surface'] > OVERWORLD_SEA_LEVEL
+	cleanMapping('overworld land',TERRAIN)
 if 'overworld depth' not in TERRAIN:
 	print('generating overworld depth...')
 	TERRAIN['overworld depth']: Image[float] = perlin_noise_1.scale(-1,1,OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
@@ -956,34 +1072,11 @@ if 'overworld coastline' not in TERRAIN:
 	print('generating overworld coastline...')
 	TERRAIN['overworld coastline'] = TERRAIN['overworld coastline land side'] | TERRAIN['overworld coastline water side']
 	cleanMapping('overworld coastline',TERRAIN)
-if 'overworld bodies of water' not in TERRAIN:
-	print('generating overworld bodies of water...')
-	colors = []
-	rng = random.Random(NOISE_SEED)
-	while len(colors) < len(bodiesMap):
-		c = rng.randint(0,255 << 16)
-		if c not in colors:
-			colors.append(c)
-	TERRAIN['overworld bodies of water']: Image[int|None] = Image(GRID_SIZE)
-	for i,body in enumerate(bodiesMap):
-		for point in body:
-			TERRAIN['overworld bodies of water'][point] = colors[i]
-	TERRAIN['overworld bodies of water']: Image[int] = ifMap(
-		0,
-		TERRAIN['overworld bodies of water'].isNone(),
-		TERRAIN['overworld bodies of water'],
-	)
-	cleanMapping('overworld bodies of water',TERRAIN)
-RANGE['overworld bodies of water'] = Interval(0,255 << 16)
 if 'overworld true surface' not in TERRAIN:
 	print('generating overworld true surface...')
-	TERRAIN['overworld true surface']: Image[float] = ifMap(
-		TERRAIN['overworld surface'],
-		TERRAIN['overworld land'],
-		OVERWORLD_SEA_LEVEL,
-	)
+	TERRAIN['overworld true surface']: Image[float] = TERRAIN['overworld surface'] + TERRAIN['overworld water']
 	cleanMapping('overworld true surface',TERRAIN)
-RANGE['overworld true surface'] = RANGE['overworld surface'] | OVERWORLD_SEA_LEVEL
+RANGE['overworld true surface'] = RANGE['overworld surface'] + RANGE['overworld water']
 if 'overworld true surface derivative x' not in TERRAIN:
 	dx1: Image[float] = Image(
 		GRID_SIZE,
@@ -1080,22 +1173,9 @@ if 'overworld general wind angle' not in TERRAIN:
 	)
 	cleanMapping('overworld general wind angle',TERRAIN)
 RANGE['overworld general wind angle'] = Interval(0,4 * pi)
-pressure_frames = []
-block = NoiseBlock(
-	dimensions = 4,
-	size = GRID_SIZE,
-	seed = NOISE_SEED + 3,
-	scale = OVERWORLD_PRESSURE_SCALE,
-	frequency = OVERWORLD_PRESSURE_FREQUENCY,
-	time = 0
-)
-if block not in NOISE_MAP:
-	NOISE_MAP[block] = perlinNoise(block)
-	cleanNoiseMapping(block,TERRAIN)
 if 'overworld pressure' not in TERRAIN:
-	TERRAIN['overworld pressure'] = NOISE_MAP[block]
+	TERRAIN['overworld pressure'] = NOISE_MAP[pBlock]
 	cleanMapping('overworld pressure',TERRAIN)
-print(f"{len(TERRAIN['overworld pressure'].values)}x{len(TERRAIN['overworld pressure'].values[0].values)}x{len(TERRAIN['overworld pressure'].values[0].values[0])}")
 RANGE['overworld pressure'] = Interval(-1,1)
 if 'overworld temperature' not in TERRAIN:
 	print('generating overworld temperature...')
