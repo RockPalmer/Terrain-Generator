@@ -64,12 +64,12 @@ NOISE_DIRECTORY.mkdir(parents = True,exist_ok = True)
 
 GRID_SIZE: int = 256
 CELL_SIZE: int = 4
-OVERWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
-OVERWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
-MIDWORLD_SURFACE_RANGE: tuple[int,int] = (0,256)
-MIDWORLD_DEPTH_RANGE: tuple[int,int] = (0,256)
-OVERWORLD_TEMPERATURE_RANGE: tuple[float,float] = (-89.2,56.7)
-OVERWORLD_SUNLIGHT_RANGE: tuple[int,int] = (0,256)
+OVERWORLD_SURFACE_RANGE: Interval = Interval(0,255)
+OVERWORLD_DEPTH_RANGE: Interval = Interval(0,255)
+MIDWORLD_SURFACE_RANGE: Interval = Interval(0,255)
+OVERWORLD_TEMPERATURE_RANGE: Interval = Interval(-89.2,56.7)
+OVERWORLD_SUNLIGHT_RANGE: Interval = Interval(0,255)
+OVERWORLD_PRESSURE_RANGE: Interval = Interval(0,255)
 OVERWORLD_WATER_RATIO = 0.71
 MIDWORLD_SEA_LEVEL_FACTOR = 0.4
 TERRAIN_NOISE_SCALE: int = 1
@@ -95,37 +95,21 @@ OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
 OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 OVERWORLD_TEMPERATURE_LAND_DIFFERENCE: int = 6
 SNOW_LEVEL: int = 60
-WIND_FRAMES: int = 50
-WIND_TIME_WINDOW: int|float = 1
 
-OVERWORLD_TEMPERATURE_MIN: float = OVERWORLD_TEMPERATURE_RANGE[0]
-OVERWORLD_TEMPERATURE_MAX: float = OVERWORLD_TEMPERATURE_RANGE[1]
-OVERWORLD_SUNLIGHT_MIN: int = OVERWORLD_SUNLIGHT_RANGE[0]
-OVERWORLD_SUNLIGHT_MAX: int = OVERWORLD_SUNLIGHT_RANGE[1] - 1
-OVERWORLD_SURFACE_MIN: int = OVERWORLD_SURFACE_RANGE[0]
-OVERWORLD_SURFACE_MAX: int = OVERWORLD_SURFACE_RANGE[1] - 1
-OVERWORLD_DEPTH_MIN: int = OVERWORLD_DEPTH_RANGE[0]
-OVERWORLD_DEPTH_MAX: int = OVERWORLD_DEPTH_RANGE[1] - 1
-MIDWORLD_SURFACE_MIN: int = MIDWORLD_SURFACE_RANGE[0]
-MIDWORLD_SURFACE_MAX: int = MIDWORLD_SURFACE_RANGE[1] - 1
-MIDWORLD_DEPTH_MIN: int = MIDWORLD_DEPTH_RANGE[0]
-MIDWORLD_DEPTH_MAX: int = MIDWORLD_DEPTH_RANGE[1] - 1
-MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_MAX
+MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_RANGE.max
 RADIUS: float = GRID_SIZE / tau
-WIND_TIME_INTERVAL = WIND_TIME_WINDOW / WIND_FRAMES
 
 OVERWORLD_CLOUD_DENSITY_WIDTH: float = GRID_SIZE * OVERWORLD_CLOUD_DENSITY_FACTOR
-OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_MAX
-MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_MAX
-OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_MAX + OVERWORLD_DEPTH_MAX
+OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_RANGE.max
+MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_RANGE.max
+OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_RANGE.max + OVERWORLD_DEPTH_RANGE.max
 
 FREQUENCIES = [2**i for i in range(TERRAIN_NOISE_OCTAVES)]
-T_VALUES = [i * WIND_TIME_INTERVAL for i in range(WIND_FRAMES)]
 ARGS: dict[str,dict] = {
 	'overworld surface original' : {
 		'terrain' : [],
 		'nonterrain' : {
-			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_MAX,
+			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_RANGE.max,
 		},
 	},
 	'overworld surface fluctuation' : {
@@ -137,13 +121,13 @@ ARGS: dict[str,dict] = {
 	'overworld depth' : {
 		'terrain' : [],
 		'nonterrain' : {
-			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_MAX,
+			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_RANGE.max,
 		},
 	},
 	'midworld surface' : {
 		'terrain' : [],
 		'nonterrain' : {
-			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_MAX,
+			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_RANGE.max,
 		},
 	},
 	'overworld land' : {
@@ -222,8 +206,8 @@ ARGS: dict[str,dict] = {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
-			'OVERWORLD_SUNLIGHT_MAX' : OVERWORLD_SUNLIGHT_MAX,
-			'OVERWORLD_SUNLIGHT_MIN' : OVERWORLD_SUNLIGHT_MIN,
+			'OVERWORLD_SUNLIGHT_MAX' : OVERWORLD_SUNLIGHT_RANGE.max,
+			'OVERWORLD_SUNLIGHT_MIN' : OVERWORLD_SUNLIGHT_RANGE.min,
 			'AXIS_TILT' : AXIS_TILT,
 		},
 	},
@@ -253,8 +237,8 @@ ARGS: dict[str,dict] = {
 			'overworld land',
 		],
 		'nonterrain' : {
-			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_MIN,
-			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_MAX,
+			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_RANGE.min,
+			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_RANGE.max,
 			'OVERWORLD_TEMPERATURE_LAND_DIFFERENCE' : OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
 		},
 	},
@@ -453,19 +437,19 @@ def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int
 def perlinNoise(block: NoiseBlock) -> Image[float]:
 	print(f"generating {block}...")
 	dimensions,size,seed,scale,frequency,time = tuple(block)
-	factor: float = tau / size
-	zeros: Image[int] = Image(size,0)
-	x: Image[int] = Image(size,lambda x,y : x) * factor
-	y: Image[int] = Image(size,lambda x,y : y) * factor
-	cos_x: Image[float] = scrMap(cos,x) * scale
-	sin_x: Image[float] = scrMap(sin,x) * scale
-	cos_y: Image[float] = scrMap(cos,y) * scale
-	sin_y: Image[float] = scrMap(sin,y) * scale
-	nx: Image[float] = cos_x * frequency
-	ny: Image[float] = sin_x * frequency
-	nz: Image[float] = cos_y * frequency
-	nw: Image[float] = sin_y * frequency + seed
-	return scrMap(perlin,nx,ny,nz + time,nw)
+	seed_offset = seed
+	noise_map = Image(size)
+	for y in range(size):
+		for x in range(size):
+			# Map grid coordinates onto a torus
+			angle_x = tau * x / size
+			angle_y = tau * y / size
+			nx = cos(angle_x) * scale * frequency
+			ny = sin(angle_x) * scale * frequency
+			nz = cos(angle_y) * scale * frequency
+			nw = sin(angle_y) * scale * frequency + seed_offset
+			noise_map[x,y] = perlin4(nx,ny,nz + time,nw)
+	return noise_map
 def dimensions(value):
 	if isinstance(value,list):
 		if len(value) == 0:
@@ -802,6 +786,9 @@ def cleanNoiseMapping(block: NoiseBlock,terrain: dict[str,Image]) -> None:
 def clearCache() -> None:
 	for entry in TERRAIN_DIRECTORY.iterdir():
 		entry.unlink()
+def clearNoiseCache() -> None:
+	for entry in NOISE_DIRECTORY.iterdir():
+		entry.unlink()
 def jsonToNoise(value: dict):
 	size = len(value['noise'])
 	return {
@@ -864,7 +851,7 @@ def addColor(trn: dict[str,Image]) -> None:
 				u = (min(values),max(values))
 				trn[k] = scrMap(
 					lambda v : (int(v),int(v),int(v)),
-					trn[k].scale(RANGE[k].min,RANGE[k].max,0,255),
+					trn[k].scale(RANGE[k],0,255),
 				)
 				values = {v for v in trn[k]}
 		elif isinstance(trn[k].first(),tuple) and len(trn[k].first()) == 2:
@@ -874,6 +861,7 @@ def addColor(trn: dict[str,Image]) -> None:
 			)
 
 clearCache()
+#clearNoiseCache()
 TERRAIN = loadTerrainValues()
 NOISE_MAP = loadNoiseValues()
 LENGTH: int = GRID_SIZE * CELL_SIZE
@@ -957,9 +945,9 @@ perlin_noise_2: Image[float] = sum(
 ) / total_amplitude
 if 'overworld surface original' not in TERRAIN:
 	print('generating overworld surface original...')
-	TERRAIN['overworld surface original']: Image[float] = perlin_noise_0.scale(OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
+	TERRAIN['overworld surface original']: Image[float] = perlin_noise_0.scale(OVERWORLD_SURFACE_RANGE)
 	cleanMapping('overworld surface original',TERRAIN)
-RANGE['overworld surface original'] = Interval(OVERWORLD_SURFACE_MIN,OVERWORLD_SURFACE_MAX)
+RANGE['overworld surface original'] = OVERWORLD_SURFACE_RANGE
 if 'overworld land' not in TERRAIN:
 	print('generating overworld land...')
 	bins = {
@@ -980,13 +968,11 @@ if 'overworld land' not in TERRAIN:
 			break
 	if OVERWORLD_SEA_LEVEL == None:
 		OVERWORLD_SEA_LEVEL = RANGE['overworld surface original'].max + 1
-	print(OVERWORLD_SEA_LEVEL)
 	TERRAIN['overworld land']: Image[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
 	cleanMapping('overworld land',TERRAIN)
 else:
 	water_points = {(i,j) for (i,j),v in TERRAIN['overworld land'] if not v}
 	OVERWORLD_SEA_LEVEL = ceil(max({TERRAIN['overworld surface original'][p] for p in water_points}))
-print(len({(i,j) for (i,j),v in TERRAIN['overworld land'].enumerate() if v}))
 if 'overworld surface fluctuation' not in TERRAIN:
 	print('generating overworld surface fluctuation...')
 	TERRAIN['overworld surface fluctuation']: Image[float] = Image(
@@ -1018,14 +1004,14 @@ if 'overworld surface' not in TERRAIN:
 RANGE['overworld surface'] = RANGE['overworld surface original']
 if 'overworld depth' not in TERRAIN:
 	print('generating overworld depth...')
-	TERRAIN['overworld depth']: Image[float] = perlin_noise_1.scale(-1,1,OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
+	TERRAIN['overworld depth']: Image[float] = perlin_noise_1.scale(-1,1,OVERWORLD_DEPTH_RANGE)
 	cleanMapping('overworld depth',TERRAIN)
-RANGE['overworld depth'] = Interval(OVERWORLD_DEPTH_MIN,OVERWORLD_DEPTH_MAX)
+RANGE['overworld depth'] = OVERWORLD_DEPTH_RANGE
 if 'midworld surface' not in TERRAIN:
 	print('generating midworld surface...')
-	TERRAIN['midworld surface']: Image[float] = perlin_noise_2.scale(-1,1,MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
+	TERRAIN['midworld surface']: Image[float] = perlin_noise_2.scale(-1,1,MIDWORLD_SURFACE_RANGE)
 	cleanMapping('midworld surface',TERRAIN)
-RANGE['midworld surface'] = Interval(MIDWORLD_SURFACE_MIN,MIDWORLD_SURFACE_MAX)
+RANGE['midworld surface'] = MIDWORLD_SURFACE_RANGE
 if 'overworld coastline land side' not in TERRAIN:
 	print('generating overworld coastline land side...')
 	TERRAIN['overworld coastline land side']: Image[bool] = TERRAIN['overworld land'] & Image(
@@ -1132,12 +1118,12 @@ if 'overworld sunlight' not in TERRAIN:
 	print('generating overworld sunlight...')
 	TERRAIN['overworld sunlight']: Image[float] = getSunlight(
 		size = GRID_SIZE,
-		sunlightMax = OVERWORLD_SUNLIGHT_MAX,
-		sunlightMin = OVERWORLD_SUNLIGHT_MIN,
+		sunlightMax = OVERWORLD_SUNLIGHT_RANGE.max,
+		sunlightMin = OVERWORLD_SUNLIGHT_RANGE.min,
 		tilt = AXIS_TILT,
 	)
 	cleanMapping('overworld sunlight',TERRAIN)
-RANGE['overworld sunlight'] = Interval(OVERWORLD_SUNLIGHT_MIN,OVERWORLD_SUNLIGHT_MAX)
+RANGE['overworld sunlight'] = OVERWORLD_SUNLIGHT_RANGE
 if 'overworld distance from sea level' not in TERRAIN:
 	print('generating overworld distance from sea level...')
 	TERRAIN['overworld distance from sea level']: Image[float] = abs(TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL)
@@ -1160,18 +1146,23 @@ if 'overworld general wind angle' not in TERRAIN:
 	cleanMapping('overworld general wind angle',TERRAIN)
 RANGE['overworld general wind angle'] = Interval(0,4 * pi)
 if 'overworld pressure' not in TERRAIN:
-	factor = 1 - TERRAIN['overworld sunlight'].scale(0,1)
-	midline = (
-		RANGE['overworld true surface'].max - RANGE['overworld true surface'].min
-	) / 2
-	TERRAIN['overworld pressure'] = (
+	print('generating overworld pressure...')
+	surface_related_pressure = RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
+	surface_related_pressure -= surface_related_pressure.min()
+	sunlight_related_pressure = (
+		RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']
+	).scale(RANGE['overworld sunlight'],0,1)
+	pressure_diff = (
 		(
-			NOISE_MAP[pBlock].scale(
-				RANGE['overworld true surface'].min,
-				RANGE['overworld true surface'].max,
-			) - midline
-		) * factor + midline + TERRAIN['overworld true surface']
-	).scale(RANGE['overworld true surface'].min,RANGE['overworld true surface'].max)
+			NOISE_MAP[pBlock].scale(-1,1)
+		) * sunlight_related_pressure
+	).scale(-1,1,OVERWORLD_PRESSURE_RANGE)
+	values = {v for v in pressure_diff}
+	print(min(values))
+	print(max(values))
+	TERRAIN['overworld pressure'] = pressure_diff + surface_related_pressure
+	negative = TERRAIN['overworld pressure'] < 0
+	TERRAIN['overworld pressure'] = ifMap(0,negative,TERRAIN['overworld pressure'])
 	cleanMapping('overworld pressure',TERRAIN)
 RANGE['overworld pressure'] = RANGE['overworld true surface']
 if 'overworld temperature' not in TERRAIN:

@@ -5,6 +5,7 @@ from typing import (
 	Generic,
 	TypeVar,
 )
+from Interval import Interval
 
 T = TypeVar("T")
 
@@ -88,12 +89,32 @@ class Image(Generic[T]):
 			raise IndexError(f"{index} -> {len(self.values)}x{len(self.values[0])}")
 	def scale(self,*args) -> Image:
 		match len(args):
-			case 4: (minv1,maxv1,minv2,maxv2) = args
-			case 2:
+			case 1:
+				if not isinstance(args[0],Interval): raise TypeError
 				vals = {v for v in self}
 				minv1 = min(vals)
 				maxv1 = max(vals)
-				(minv2,maxv2) = args
+				minv2 = args[0].min
+				maxv2 = args[0].max
+			case 2:
+				if isinstance(args[0],int|float) and isinstance(args[1],int|float): return self.scale(Interval(*args))
+				if not isinstance(args[0],Interval) or not isinstance(args[1],Interval): raise TypeError
+				minv1 = args[0].min
+				maxv1 = args[0].max
+				minv2 = args[1].min
+				maxv2 = args[1].max
+			case 3:
+				if isinstance(args[0],int|float) and isinstance(args[1],int|float) and isinstance(args[2],Interval):
+					minv1,maxv1 = args[:2]
+					minv2 = args[2].min
+					maxv2 = args[2].max
+				elif isinstance(args[0],Interval) and isinstance(args[1],int|float) and isinstance(args[2],int|float):
+					minv2,maxv2 = args[1:]
+					minv1 = args[0].min
+					maxv1 = args[0].max
+				else:
+					raise TypeError
+			case 4: (minv1,maxv1,minv2,maxv2) = args
 			case _: raise ValueError
 		diff1 = maxv1 - minv1
 		diff2 = maxv2 - minv2
