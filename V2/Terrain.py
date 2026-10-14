@@ -70,46 +70,62 @@ MIDWORLD_SURFACE_RANGE: Interval = Interval(0,255)
 OVERWORLD_TEMPERATURE_RANGE: Interval = Interval(-89.2,56.7)
 OVERWORLD_SUNLIGHT_RANGE: Interval = Interval(0,255)
 OVERWORLD_PRESSURE_RANGE: Interval = Interval(0,255)
+OVERWORLD_HUMIDITY_RANGE: Interval = Interval(0,255)
+OVERWORLD_RAIN_RANGE: Interval = Interval(0,255)
+OVERWORLD_SNOW_RANGE: Interval = Interval(0,255)
 OVERWORLD_WATER_RATIO = 0.71
-MIDWORLD_SEA_LEVEL_FACTOR = 0.4
+MIDWORLD_WATER_RATIO = 0.4
 TERRAIN_NOISE_SCALE: int = 1
 OVERWORLD_PRESSURE_SCALE: float = 0.75
 OVERWORLD_PRESSURE_FREQUENCY: int|float = 1
 TERRAIN_NOISE_OCTAVES: int = 8
 NOISE_SEED: int = 500
 AXIS_TILT: float = 23.44 * tau/360
-HUMIDITY_SMUDGE_RADIUS: int = 7
 UI_PANEL_WIDTH: int = 500
 UI_PANEL_MARGIN: int = 20
-NUM_CONTINENTS: int = 12
-NUM_CONTINENT_RUNS: int = 5
 UI_RECT_COLOR: Color = (255,198,183)
 MAX_COLOR_INTEGER: int = 255**3 - 1
-ADJUSTED_EDGE_AMPLITUDE: int = 32
-MAX_SPEED: int = 20
 MAX_POINT_INTEGER: int = GRID_SIZE**2 - 1
 OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR: float = 0.5
 MIDWORLD_WATER_FACTOR: float = 1.5
-MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
-OVERWORLD_CLOUD_DENSITY_FACTOR: float = 0.1
-OVERWORLD_CLOUD_DENSITY_STRENGTH: int = 20
 OVERWORLD_TEMPERATURE_LAND_DIFFERENCE: int = 6
-SNOW_LEVEL: int = 60
+OVERWORLD_SNOW_LEVEL: int = 150
+OVERWORLD_ICE_LEVEL: int = -40
+WATER_RATIO_RADIUS: int = 12
+OVERWORLD_CLOUD_FACTOR = 0.6
+OVERWORLD_CLOUD_LEVEL = OVERWORLD_CLOUD_FACTOR * (OVERWORLD_RAIN_RANGE.max - OVERWORLD_RAIN_RANGE.min) + OVERWORLD_RAIN_RANGE.min
 
-MIDWORLD_SEA_LEVEL: float = MIDWORLD_SEA_LEVEL_FACTOR * MIDWORLD_SURFACE_RANGE.max
 RADIUS: float = GRID_SIZE / tau
+MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR
 
-OVERWORLD_CLOUD_DENSITY_WIDTH: float = GRID_SIZE * OVERWORLD_CLOUD_DENSITY_FACTOR
 OVERWORLD_DEPTH_OVERLAP_HEIGHT: float = OVERWORLD_DEPTH_OVERLAP_HEIGHT_FACTOR * OVERWORLD_DEPTH_RANGE.max
 MIDWORLD_ALTITUDE_OVERLAP_HEIGHT: float = MIDWORLD_ALTITUDE_OVERLAP_HEIGHT_FACTOR * MIDWORLD_SURFACE_RANGE.max
 OVERWORLD_THICKNESS_MAX: float = OVERWORLD_SURFACE_RANGE.max + OVERWORLD_DEPTH_RANGE.max
 
 FREQUENCIES = [2**i for i in range(TERRAIN_NOISE_OCTAVES)]
 ARGS: dict[str,dict] = {
+	'overworld clouds' : {
+		'terrain' : [
+			'overworld rain',
+			'overworld snow',
+		],
+		'nonterrain' : {
+			'OVERWORLD_CLOUD_LEVEL' : OVERWORLD_CLOUD_LEVEL,
+		},
+	},
 	'overworld surface original' : {
 		'terrain' : [],
 		'nonterrain' : {
 			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_RANGE.max,
+			'OVERWORLD_SURFACE_MIN' : OVERWORLD_SURFACE_RANGE.min,
+		},
+	},
+	'overworld land' : {
+		'terrain' : [
+			'overworld surface original',
+		],
+		'nonterrain' : {
+			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
 		},
 	},
 	'overworld surface fluctuation' : {
@@ -118,37 +134,54 @@ ARGS: dict[str,dict] = {
 		],
 		'nonterrain' : {},
 	},
+	'overworld surface' : {
+		'terrain' : [
+			'overworld surface original',
+			'overworld land',
+			'overworld surface fluctuation',
+		],
+		'nonterrain' : {},
+	},
 	'overworld depth' : {
 		'terrain' : [],
 		'nonterrain' : {
 			'OVERWORLD_DEPTH_MAX' : OVERWORLD_DEPTH_RANGE.max,
+			'OVERWORLD_DEPTH_MIN' : OVERWORLD_DEPTH_RANGE.min,
 		},
 	},
 	'midworld surface' : {
 		'terrain' : [],
 		'nonterrain' : {
 			'MIDWORLD_SURFACE_MAX' : MIDWORLD_SURFACE_RANGE.max,
+			'MIDWORLD_SURFACE_MIN' : MIDWORLD_SURFACE_RANGE.min,
 		},
 	},
-	'overworld land' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
-		},
-	},
-	'overworld surface' : {
+	'overworld coastline land side' : {
 		'terrain' : [
-			'overworld surface original',
-			'overworld surface fluctuation',
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+	'overworld coastline water side' : {
+		'terrain' : [
+			'overworld land',
+		],
+		'nonterrain' : {},
+	},
+	'overworld coastline' : {
+		'terrain' : [
+			'overworld coastline water side',
+			'overworld coastline land side',
 		],
 		'nonterrain' : {},
 	},
 	'overworld true surface' : {
 		'terrain' : [
 			'overworld surface',
+			'overworld land',
 		],
 		'nonterrain' : {
-			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
+			'WATER_RATIO_RADIUS' : WATER_RATIO_RADIUS,
 		},
 	},
 	'overworld true surface derivative x' : {
@@ -168,7 +201,7 @@ ARGS: dict[str,dict] = {
 			'midworld surface',
 		],
 		'nonterrain' : {
-			'MIDWORLD_SEA_LEVEL' : MIDWORLD_SEA_LEVEL,
+			'MIDWORLD_WATER_RATIO' : MIDWORLD_WATER_RATIO,
 		},
 	},
 	'overworld depth altitude' : {
@@ -211,6 +244,14 @@ ARGS: dict[str,dict] = {
 			'AXIS_TILT' : AXIS_TILT,
 		},
 	},
+	'overworld distance from sea level' : {
+		'terrain' : [
+			'overworld surface',
+		],
+		'nonterrain' : {
+			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
+		},
+	},
 	'overworld general wind magnitude' : {
 		'terrain' : [],
 		'nonterrain' : {
@@ -225,10 +266,13 @@ ARGS: dict[str,dict] = {
 	},
 	'overworld pressure' : {
 		'terrain' : [
-			'overworld sunlight',
 			'overworld true surface',
+			'overworld sunlight',
 		],
-		'nonterrain' : {},
+		'nonterrain' : {
+			'OVERWORLD_PRESSURE_MAX' : OVERWORLD_PRESSURE_RANGE.max,
+			'OVERWORLD_PRESSURE_MIN' : OVERWORLD_PRESSURE_RANGE.min,
+		},
 	},
 	'overworld temperature' : {
 		'terrain' : [
@@ -237,17 +281,66 @@ ARGS: dict[str,dict] = {
 			'overworld land',
 		],
 		'nonterrain' : {
-			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_RANGE.min,
-			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_RANGE.max,
 			'OVERWORLD_TEMPERATURE_LAND_DIFFERENCE' : OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
+			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_RANGE.max,
+			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_RANGE.min,
+		},
+	},
+	'overworld water ratio' : {
+		'terrain' : [
+			'overworld land',
+		],
+		'nonterrain' : {
+			'WATER_RATIO_RADIUS' : WATER_RATIO_RADIUS,
+		},
+	},
+	'overworld humidity' : {
+		'terrain' : [
+			'overworld pressure',
+			'overworld temperature',
+			'overworld water ratio',
+		],
+		'nonterrain' : {
+			'OVERWORLD_HUMIDITY_MAX' : OVERWORLD_HUMIDITY_RANGE.max,
+			'OVERWORLD_HUMIDITY_MIN' : OVERWORLD_HUMIDITY_RANGE.min,
+		},
+	},
+	'overworld rain' : {
+		'terrain' : [
+			'overworld temperature',
+			'overworld humidity',
+		],
+		'nonterrain' : {
+			'OVERWORLD_RAIN_MAX' : OVERWORLD_RAIN_RANGE.max,
+			'OVERWORLD_RAIN_MIN' : OVERWORLD_RAIN_RANGE.min,
+		},
+	},
+	'overworld snow' : {
+		'terrain' : [
+			'overworld temperature',
+			'overworld humidity',
+			'overworld pressure',
+		],
+		'nonterrain' : {
+			'OVERWORLD_RAIN_MAX' : OVERWORLD_RAIN_RANGE.max,
+			'OVERWORLD_RAIN_MIN' : OVERWORLD_RAIN_RANGE.min,
 		},
 	},
 	'snow' : {
 		'terrain' : [
-			'overworld temperature',
+			'overworld snow',
 		],
 		'nonterrain' : {
-			'SNOW_LEVEL' : SNOW_LEVEL,
+			'OVERWORLD_SNOW_LEVEL' : OVERWORLD_SNOW_LEVEL,
+		},
+	},
+	'ice' : {
+		'terrain' : [
+			'overworld temperature',
+			'overworld land',
+		],
+		'nonterrain' : {
+			'OVERWORLD_ICE_LEVEL' : OVERWORLD_ICE_LEVEL,
 		},
 	},
 	'overworld temperature derivative x' : {
@@ -271,8 +364,8 @@ ARGS: dict[str,dict] = {
 	'potential midworld water' : {
 		'terrain' : [
 			'midworld land',
-			'overworld-midworld connections',
 			'overworld land',
+			'overworld-midworld connections',
 		],
 		'nonterrain' : {},
 	},
@@ -281,65 +374,30 @@ ARGS: dict[str,dict] = {
 			'potential midworld water',
 			'overworld thickness',
 			'midworld surface',
+			'midworld land',
 		],
 		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-			'OVERWORLD_THICKNESS_MAX' : OVERWORLD_THICKNESS_MAX,
 			'MIDWORLD_WATER_FACTOR' : MIDWORLD_WATER_FACTOR,
+			'OVERWORLD_THICKNESS_MAX' : OVERWORLD_THICKNESS_MAX,
 		},
 	},
 	'overworld greenery' : {
 		'terrain' : [
-			'snow',
 			'overworld surface',
+			'snow',
 			'overworld land',
 		],
 		'nonterrain' : {},
 	},
 	'midworld greenery' : {
 		'terrain' : [
-			'overworld-midworld connections',
 			'midworld surface',
+			'overworld-midworld connections',
 			'midworld water',
 			'midworld land',
 		],
 		'nonterrain' : {
-			'MIDWORLD_SEA_LEVEL' : MIDWORLD_SEA_LEVEL,
-		},
-	},
-	'overworld cloud density' : {
-		'terrain' : [],
-		'nonterrain' : {
-			'OVERWORLD_CLOUD_DENSITY_STRENGTH' : OVERWORLD_CLOUD_DENSITY_STRENGTH,
-			'OVERWORLD_CLOUD_DENSITY_WIDTH' : OVERWORLD_CLOUD_DENSITY_WIDTH,
-			'GRID_SIZE' : GRID_SIZE,
-		},
-	},
-	'overworld coastline land side' : {
-		'terrain' : [
-			'overworld land',
-		],
-		'nonterrain' : {},
-	},
-	'overworld coastline water side' : {
-		'terrain' : [
-			'overworld land',
-		],
-		'nonterrain' : {},
-	},
-	'overworld coastline' : {
-		'terrain' : [
-			'overworld coastline land side',
-			'overworld coastline water side',
-		],
-		'nonterrain' : {},
-	},
-	'overworld distance from sea level' : {
-		'terrain' : [
-			'overworld surface',
-		],
-		'nonterrain' : {
-			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
+			'MIDWORLD_WATER_RATIO' : MIDWORLD_WATER_RATIO,
 		},
 	},
 }
@@ -411,29 +469,12 @@ def dn():
 	global itera
 
 	itera -= 1
-def redBlueScale(value: int|float) -> int:
-	return int(value) << 16 | (255 - int(value))
-def perlinVideo(size: int,speed: int|float,frames: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Video[float]:
-	gen = PerlinGenerator(
-		size = size,
-		seed = seed,
-		scale = scale,
-		octaves = octaves,
+def intToColor(value: int|float) -> Color:
+	return (
+		(int(value) >> 16) & 0xFF,
+		(int(value) >> 8) & 0xFF,
+		int(value) & 0xFF,
 	)
-	vid = Video(size,frames)
-	for frame in range(frames):
-		print(f"generating perlin noise frame {frame + 1}/{frames}...")
-		t = frame * speed / frames
-		vid[frame] = gen.getAtTime(t)
-	return vid
-def layeredPerlinNoise(size: int,seed: int|float = 0,scale: int = 1,octaves: int = 1) -> Image[float]:
-	print('generating perlin noise layers...')
-	frequencies = [2**octave for octave in range(octaves)]
-	amplitudes = [0.5**octave for octave in range(octaves)]
-	layers = [
-		perlinNoise(size,seed,scale,frequency) * amplitude for frequency,amplitude in zip(frequencies,amplitudes)
-	]
-	return sum(layers) / sum(amplitudes)
 def perlinNoise(block: NoiseBlock) -> Image[float]:
 	print(f"generating {block}...")
 	dimensions,size,seed,scale,frequency,time = tuple(block)
@@ -450,34 +491,28 @@ def perlinNoise(block: NoiseBlock) -> Image[float]:
 			nw = sin(angle_y) * scale * frequency + seed_offset
 			noise_map[x,y] = perlin4(nx,ny,nz + time,nw)
 	return noise_map
-def dimensions(value):
-	if isinstance(value,list):
-		if len(value) == 0:
-			return 'list[0]'
-def intToColor(value: int|float) -> Color:
-	return (
-		(int(value) >> 16) & 255,
-		(int(value) >> 8) & 255,
-		int(value) & 255,
-	)
+def perlinNoise2(block: NoiseBlock) -> Image[float]:
+	print('generating perlin noise...')
+	dimensions,size,seed,scale,frequency,time = tuple(block)
+	factor = tau / scale
+	x = Image(size,lambda i,j : i)
+	y = Image(size,lambda i,j : j)
+	angle_x = factor * x
+	angle_y = factor * y
+	nx = scrMap(cos,angle_x) * scale * frequency
+	ny = scrMap(sin,angle_x) * scale * frequency
+	nz = scrMap(cos,angle_y) * scale * frequency
+	nw = scrMap(sin,angle_y) * scale * frequency + seed
+	return scrMap(perlin4,nx,ny,nz + time,nw)
 def pointToColor(point: Point) -> Color:
 	value = round((point[0] * 255 + point[1]) * MAX_COLOR_INTEGER/MAX_POINT_INTEGER)
 	return Color(value)
-def getMaxX(layout: dict[Point,str]) -> int:
-	return max(x for x,_ in layout.keys())
-def getMaxY(layout: dict[Point,str]) -> int:
-	return max(y for _,y in layout.keys())
 def getDistance(p1: Point, p2: Point) -> float:
 	dx = abs(p1[0] - p2[0])
 	dy = abs(p1[1] - p2[1])
 	if dx > GRID_SIZE / 2: dx = GRID_SIZE - dx
 	if dy > GRID_SIZE / 2: dy = GRID_SIZE - dy
 	return (dx**2 + dy**2)**0.5
-def getVector(p1: Point,p2: Point) -> array:
-	return array([
-		((p2[0] - p1[0] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
-		((p2[1] - p1[1] + GRID_SIZE//2) % GRID_SIZE) - GRID_SIZE//2,
-	])
 def getGenWindMagnitude(y: int|float,size: int) -> float:
 	if y >= size / 4: return getGenWindMagnitude(y % (size / 4),size)
 	return size / 8 - abs(y - size / 8)
@@ -495,50 +530,6 @@ def getNextPixelByAngle(start: Point,angle: float,size: int) -> Point:
 	if 5/2 * pi <= angle and angle < 7/2 * pi: return (x,(y + 1) % size)
 	if 7/2 * pi <= angle and angle < 4 * pi: return ((x + 1) % size,y)
 	raise ValueError
-def getGenWindValueVideo(magnitudes: list[float],angles: list[float],size: int,frames: int) -> Video[float]:
-	start_x = [
-		size//4,
-		size//2,
-		3*size//4,
-	]
-	start_y = [
-		0,
-		size//4,
-		3*size//4 - 1,
-		size - 1,
-	]
-	starts = []
-	for x in start_x:
-		for y in start_y:
-			starts.append((x,y))
-	trails = [[point] for point in starts]
-	for frame in range(frames):
-		for i in range(len(trails)):
-			trails[i].append(getNextPixelByAngle(trails[i][-1]))
-	filled_points = [set() for frame in range(frames)]
-	for frame in range(frames):
-		filled_points.append(reduce(or_,[set(trail[:frame + 1]) for trail in trails]))
-	return Video(
-		frames,
-		size,
-		lambda t,x,y : magnitudes[y] if (x,y) in filled_points[t] else 0
-	)
-def randPoint(rng) -> Point:
-	return (
-		rng.randint(0,GRID_SIZE),
-		rng.randint(0,GRID_SIZE),
-	)
-def randColor(rng) -> Color:
-	return (
-		rng.randint(0,255),
-		rng.randint(0,255),
-		rng.randint(0,255),
-	)
-def getCentroid(points: list[Point]) -> Point:
-	return (
-		round(sum(p[0] for p in points)/len(points)),
-		round(sum(p[1] for p in points)/len(points)),
-	)
 def getCurrentTilt(day: int,tilt: int|float) -> float:
 	return -tilt + day * (2*tilt)/365
 def lattitudeToAngle(latt: int,size: int) -> float:
@@ -561,15 +552,6 @@ def getNormalizedSunlightValue(latt: int,day: int,size: int,tilt: int|float) -> 
 def getAvgSunlightValue(lattitude: int,sunlightMax: int|float,sunlightMin: int|float,size: int,tilt: int|float) -> float: # float[0,GRID_SIZE]
 	values = [getNormalizedSunlightValue(lattitude,day,size,tilt) for day in range(365)]
 	return (sum(values)/len(values) + (size/tau)**2) * (sunlightMax - sunlightMin)/(2 * (size/tau)**2) + sunlightMin
-def getHumidity(*,land: Image[bool]) -> Image:
-	print('generating humidity...')
-	offsets = [(x,y) for x in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) for y in range(-HUMIDITY_SMUDGE_RADIUS,HUMIDITY_SMUDGE_RADIUS + 1) if getDistance((0,0),(x,y)) <= HUMIDITY_SMUDGE_RADIUS]
-	humidity = Image(GRID_SIZE)
-	for i in range(GRID_SIZE):
-		for j in range(GRID_SIZE):
-			points = [((i + x) % GRID_SIZE,(j + y) % GRID_SIZE) for x,y in offsets]
-			humidity[i,j] = len([p for p in points if not land[p]])/len(points)
-	return humidity
 def getSunlight(size: int,sunlightMax: int|float,sunlightMin: int|float,tilt: int|float) -> Image[float]: # float[0,GRID_SIZE]
 	print('generating sunlight...')
 	values = [getAvgSunlightValue(
@@ -583,36 +565,6 @@ def getSunlight(size: int,sunlightMax: int|float,sunlightMin: int|float,tilt: in
 		size,
 		lambda x,y : values[y],
 	)
-def getBodiesOfWater(land: Image[bool],seaLevel: int|float,depthMax: int|float,octaves: int,scale: int|float,seed: int,size: int) -> list[set[Point]]:
-	def neighbors(p1,p2):
-		return (
-			p1[0] == p2[0] and (
-				(p1[1] + 1) % size == p2[1] or
-				(p1[1] - 1) % size == p2[1]
-			) or p1[1] == p2[1] and (
-				(p1[0] + 1) % size == p2[0] or
-				(p1[0] - 1) % size == p2[0]
-			)
-		)
-	def belongsTo(p,b):
-		return any(neighbors(p,pt) for pt in b)
-	points: list[Point] = [(i,j) for i in range(size) for j in range(size) if not land[i,j]]
-	bodies: list[set[Point]] = []
-	for point in points:
-		indices = set()
-		for i,body in enumerate(bodies):
-			if belongsTo(point,body):
-				indices.add(i)
-		if len(indices) > 0:
-			bodies = [
-				{point} | reduce(
-					or_,
-					[body for i,body in enumerate(bodies) if i in indices]
-				)
-			] + [body for i,body in enumerate(bodies) if i not in indices]
-		else:
-			bodies.append({point})
-	return bodies
 def getGraphDistance(start: Point,end: Point,points: set[Point],size: int):
 	def adj(p: Point) -> set[Point]:
 		a,b = p
@@ -641,18 +593,6 @@ def getGraphDistance(start: Point,end: Point,points: set[Point],size: int):
 				dist[neighbor] = dist[node] + 1
 				q.append(neighbor)
 	return -1
-def getConnectedWater(point: Point,height: int|float,trn1: Image[int|float],trn2: Image[int|float],size: int) -> set[Point]:
-	stack = [point]
-	checked = {point}
-	found = {point}
-	while len(stack) != 0:
-		p = stack[0]
-		stack = stack[1:]
-		checked.add(p)
-		found.add(p)
-		neighbors = {n for n in getNeighbors(p,size) if trn1[n] + trn2[n] == height and n not in checked}
-		stack += list(neighbors)
-	return found
 def getConnected(point: Point,height: int|float,trn: Image[int|float],size: int) -> set[Point]:
 	stack = [point]
 	checked = {point}
@@ -719,6 +659,30 @@ def flowPath(src: Image[int|float],point: Point,size: int,conn: dict[Point,set[P
 			path |= flowPath(src,p,size,conn,nextp,flowp)
 		flowp[point] = path
 	return flowp[point]
+def offsetsAtRadius(radius: int|float) -> set[Point]:
+	points: set[Point] = set()
+	for i in range(-radius,radius + 1):
+		for j in range(-radius,radius + 1):
+			if (i**2 + j**2)**0.5 <= radius:
+				points.add((i,j))
+	return points
+def getDistToWater(point: Point,radius: int|float,land: Image[bool],size: int) -> float:
+	offsets = offsetsAtRadius(radius)
+	x,y = point
+	points = {
+		(
+			(x + i) % size,
+			(y + j) % size,
+		) for i,j in offsets if not land[
+			(x + i) % size,
+			(y + j) % size,
+		]
+	}
+	dists = {
+		getDistance((x,y),(a,b)) for a,b in points
+	}
+	if len(dists) == 0: return WATER_RATIO_RADIUS
+	return min(dists)
 def storeTerrainValues(terrainValues: dict[str,Image|Video]) -> None:
 	for name,terrain in terrainValues.items():
 		filename = Path(f"terrain/{name}.json")
@@ -971,8 +935,8 @@ if 'overworld land' not in TERRAIN:
 	TERRAIN['overworld land']: Image[bool] = TERRAIN['overworld surface original'] > OVERWORLD_SEA_LEVEL
 	cleanMapping('overworld land',TERRAIN)
 else:
-	water_points = {(i,j) for (i,j),v in TERRAIN['overworld land'] if not v}
-	OVERWORLD_SEA_LEVEL = ceil(max({TERRAIN['overworld surface original'][p] for p in water_points}))
+	water_points = {(i,j) for (i,j),v in TERRAIN['overworld land'].enumerate() if not v}
+	OVERWORLD_SEA_LEVEL = int(max({TERRAIN['overworld surface original'][p] for p in water_points})) + 1
 if 'overworld surface fluctuation' not in TERRAIN:
 	print('generating overworld surface fluctuation...')
 	TERRAIN['overworld surface fluctuation']: Image[float] = Image(
@@ -995,8 +959,13 @@ RANGE['overworld surface fluctuation'] = Interval(0,1)
 if 'overworld surface' not in TERRAIN:
 	print('generating overworld surface...')
 	'''
-	TERRAIN['overworld surface']: Image[float] = TERRAIN['overworld surface original'] * (
+	scaled = TERRAIN['overworld surface original'] * (
 		1 + TERRAIN['overworld surface fluctuation']
+	)
+	TERRAIN['overworld surface']: Image[float] = ifMap(
+		scaled,
+		TERRAIN['overworld land'],
+		TERRAIN['overworld surface original'],
 	)
 	'''
 	TERRAIN['overworld surface']: Image[float] = TERRAIN['overworld surface original']
@@ -1089,8 +1058,29 @@ RANGE['overworld true surface derivative y'] = (
 ) / 2
 if 'midworld land' not in TERRAIN:
 	print('generating midworld land...')
+	bins = {
+		(i,i + 1) : set() for i in range(RANGE['midworld surface'].min,RANGE['midworld surface'].max + 1)
+	}
+	for i in range(GRID_SIZE):
+		for j in range(GRID_SIZE):
+			bins[
+				int(TERRAIN['midworld surface'][i,j]),
+				int(TERRAIN['midworld surface'][i,j]) + 1,
+			].add((i,j))
+	total = 0
+	MIDWORLD_SEA_LEVEL = None
+	for i in range(RANGE['midworld surface'].min + 1,RANGE['midworld surface'].max + 1):
+		total += len(bins)
+		if total/GRID_SIZE**2 > MIDWORLD_WATER_RATIO:
+			MIDWORLD_SEA_LEVEL = i - 1
+			break
+	if MIDWORLD_SEA_LEVEL == None:
+		MIDWORLD_SEA_LEVEL = RANGE['midworld surface'].max + 1
 	TERRAIN['midworld land']: Image[bool] = TERRAIN['midworld surface'] > MIDWORLD_SEA_LEVEL
 	cleanMapping('midworld land',TERRAIN)
+else:
+	lava_points = {(i,j) for (i,j),v in TERRAIN['midworld land'].enumerate() if not v}
+	MIDWORLD_SEA_LEVEL = int(max({TERRAIN['midworld surface'][p] for p in lava_points})) + 1
 if 'overworld depth altitude' not in TERRAIN:
 	print('generating overworld depth altitude...')
 	TERRAIN['overworld depth altitude']: Image[float] = OVERWORLD_DEPTH_OVERLAP_HEIGHT + MIDWORLD_ALTITUDE_OVERLAP_HEIGHT - TERRAIN['overworld depth']
@@ -1153,37 +1143,103 @@ if 'overworld pressure' not in TERRAIN:
 		RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']
 	).scale(RANGE['overworld sunlight'],0,1)
 	pressure_diff = (
-		(
-			NOISE_MAP[pBlock].scale(-1,1)
-		) * sunlight_related_pressure
+		NOISE_MAP[pBlock].scale(-1,1) * sunlight_related_pressure
 	).scale(-1,1,OVERWORLD_PRESSURE_RANGE)
 	values = {v for v in pressure_diff}
-	print(min(values))
-	print(max(values))
-	TERRAIN['overworld pressure'] = pressure_diff + surface_related_pressure
-	negative = TERRAIN['overworld pressure'] < 0
-	TERRAIN['overworld pressure'] = ifMap(0,negative,TERRAIN['overworld pressure'])
+	TERRAIN['overworld pressure'] = (
+		pressure_diff + surface_related_pressure
+	).scale(OVERWORLD_PRESSURE_RANGE)
 	cleanMapping('overworld pressure',TERRAIN)
 RANGE['overworld pressure'] = RANGE['overworld true surface']
 if 'overworld temperature' not in TERRAIN:
 	print('generating overworld temperature...')
-	TERRAIN['overworld temperature']: Image[float] = (TERRAIN['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - TERRAIN['overworld distance from sea level']))/2
+	initial_temperature: Image[float] = (
+		TERRAIN['overworld sunlight'] + (
+			RANGE['overworld distance from sea level'].max - TERRAIN['overworld distance from sea level']
+		)
+	)/2
 	TERRAIN['overworld temperature']: Image[float] = ifMap(
-		TERRAIN['overworld temperature'],
+		initial_temperature,
 		TERRAIN['overworld land'],
-		TERRAIN['overworld temperature'] - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
-	)
+		initial_temperature - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
+	).scale(OVERWORLD_TEMPERATURE_RANGE)
 	cleanMapping('overworld temperature',TERRAIN)
-RANGE['overworld temperature'] = (
-	(RANGE['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - RANGE['overworld distance from sea level']))
-) | (
-	RANGE['overworld sunlight'] + (RANGE['overworld distance from sea level'].max - RANGE['overworld distance from sea level']) - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE
-)
+RANGE['overworld temperature'] = OVERWORLD_TEMPERATURE_RANGE
+if 'overworld water ratio' not in TERRAIN:
+	print('generating overworld water ratio...')
+	TERRAIN['overworld water ratio'] = WATER_RATIO_RADIUS - Image(
+		GRID_SIZE,
+		lambda x,y : getDistToWater((x,y),WATER_RATIO_RADIUS,TERRAIN['overworld land'],GRID_SIZE),
+	)
+	cleanMapping('overworld water ratio',TERRAIN)
+RANGE['overworld water ratio'] = Interval(0,WATER_RATIO_RADIUS)
+if 'overworld humidity' not in TERRAIN:
+	print('generating overworld humidity...')
+	inv_pressure = RANGE['overworld pressure'].max - TERRAIN['overworld pressure']
+	TERRAIN['overworld humidity'] = (
+		inv_pressure.scale(
+			RANGE['overworld pressure'],
+			OVERWORLD_HUMIDITY_RANGE,
+		) + TERRAIN['overworld temperature'].scale(
+			RANGE['overworld temperature'],
+			OVERWORLD_HUMIDITY_RANGE,
+		) + TERRAIN['overworld water ratio'].scale(
+			RANGE['overworld water ratio'],
+			OVERWORLD_HUMIDITY_RANGE,
+		)
+	)/3
+	cleanMapping('overworld humidity',TERRAIN)
+RANGE['overworld humidity'] = OVERWORLD_HUMIDITY_RANGE
+if 'overworld rain' not in TERRAIN:
+	print('generating overworld rain...')
+	TERRAIN['overworld rain'] = (
+		TERRAIN['overworld temperature'].scale(
+			RANGE['overworld temperature'],
+			OVERWORLD_RAIN_RANGE,
+		) + TERRAIN['overworld humidity'].scale(
+			RANGE['overworld humidity'],
+			OVERWORLD_RAIN_RANGE,
+		)
+	)/2
+	cleanMapping('overworld rain',TERRAIN)
+RANGE['overworld rain'] = OVERWORLD_RAIN_RANGE
+if 'overworld snow' not in TERRAIN:
+	print('generating overworld snow...')
+	inv_temperature = RANGE['overworld temperature'].max - TERRAIN['overworld temperature']
+	inv_pressure = RANGE['overworld pressure'].max - TERRAIN['overworld pressure']
+	TERRAIN['overworld snow'] = (
+		TERRAIN['overworld humidity'].scale(
+			RANGE['overworld humidity'],
+			OVERWORLD_SNOW_RANGE,
+		) + inv_temperature.scale(
+			RANGE['overworld temperature'].max - RANGE['overworld temperature'],
+			OVERWORLD_SNOW_RANGE,
+		) + inv_pressure.scale(
+			RANGE['overworld pressure'].max - RANGE['overworld pressure'],
+			OVERWORLD_SNOW_RANGE,
+		)
+	)/3
+	cleanMapping('overworld snow',TERRAIN)
+RANGE['overworld snow'] = OVERWORLD_SNOW_RANGE
+if 'overworld clouds' not in TERRAIN:
+	print('generating overworld clouds...')
+	TERRAIN['overworld clouds'] = (
+		TERRAIN['overworld rain'] > OVERWORLD_CLOUD_LEVEL
+	) | (
+		TERRAIN['overworld snow'] > OVERWORLD_CLOUD_LEVEL
+	)
+	cleanMapping('overworld clouds',TERRAIN)
 if 'snow' not in TERRAIN:
 	print('generating snow...')
-	#TERRAIN['snow']: Image[bool] = TERRAIN['overworld temperature'] <= SNOW_LEVEL
-	TERRAIN['snow']: Image[bool] = Image(GRID_SIZE,False)
+	TERRAIN['snow']: Image[bool] = TERRAIN['overworld snow'] > OVERWORLD_SNOW_LEVEL
+	#TERRAIN['snow']: Image[bool] = Image(GRID_SIZE,False)
 	cleanMapping('snow',TERRAIN)
+if 'ice' not in TERRAIN:
+	print('generating ice...')
+	TERRAIN['ice'] = (
+		TERRAIN['overworld temperature'] < OVERWORLD_ICE_LEVEL
+	) & ~TERRAIN['overworld land']
+	cleanMapping('ice',TERRAIN)
 if 'overworld temperature derivative x' not in TERRAIN:
 	print('generating overworld temperature derivative x...')
 	dx1: Image[float] = Image(
@@ -1282,13 +1338,9 @@ if 'overworld greenery' not in TERRAIN:
 	print('generating overworld greenery...')
 	overworld_surface_int = scrMap(int,TERRAIN['overworld surface'])
 	TERRAIN['overworld greenery'] = ifMap(
-		(255 << 16) | (255 << 8) | 255,
-		TERRAIN['snow'],
-		ifMap(
-			overworld_surface_int << 8,
-			TERRAIN['overworld land'],
-			overworld_surface_int,
-		)
+		overworld_surface_int << 8,
+		TERRAIN['overworld land'],
+		overworld_surface_int,
 	)
 	cleanMapping('overworld greenery',TERRAIN)
 RANGE['overworld greenery'] = Interval(0,(1 << 24) - 1)
