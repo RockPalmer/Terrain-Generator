@@ -184,13 +184,13 @@ ARGS: dict[str,dict] = {
 			'WATER_RATIO_RADIUS' : WATER_RATIO_RADIUS,
 		},
 	},
-	'overworld true surface derivative x' : {
+	'overworld true surface differential x' : {
 		'terrain' : [
 			'overworld true surface',
 		],
 		'nonterrain' : {},
 	},
-	'overworld true surface derivative y' : {
+	'overworld true surface differential y' : {
 		'terrain' : [
 			'overworld true surface',
 		],
@@ -274,6 +274,18 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_PRESSURE_MIN' : OVERWORLD_PRESSURE_RANGE.min,
 		},
 	},
+	'overworld pressure differential x' : {
+		'terrain' : [
+			'overworld pressure',
+		],
+		'nonterrain' : {},
+	},
+	'overworld pressure differential y' : {
+		'terrain' : [
+			'overworld pressure',
+		],
+		'nonterrain' : {},
+	},
 	'overworld temperature' : {
 		'terrain' : [
 			'overworld sunlight',
@@ -343,13 +355,13 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_ICE_LEVEL' : OVERWORLD_ICE_LEVEL,
 		},
 	},
-	'overworld temperature derivative x' : {
+	'overworld temperature differential x' : {
 		'terrain' : [
 			'overworld temperature',
 		],
 		'nonterrain' : {},
 	},
-	'overworld temperature derivative y' : {
+	'overworld temperature differential y' : {
 		'terrain' : [
 			'overworld temperature',
 		],
@@ -530,40 +542,51 @@ def getNextPixelByAngle(start: Point,angle: float,size: int) -> Point:
 	if 5/2 * pi <= angle and angle < 7/2 * pi: return (x,(y + 1) % size)
 	if 7/2 * pi <= angle and angle < 4 * pi: return ((x + 1) % size,y)
 	raise ValueError
-def getCurrentTilt(day: int,tilt: int|float) -> float:
-	return -tilt + day * (2*tilt)/365
-def lattitudeToAngle(latt: int,size: int) -> float:
+def getCurrentTilt(day: int,tilt: int|float) -> float: # [-tilt,tilt]
+	return -tilt + day * 2 * tilt/365
+def lattitudeToAngle(latt: int,size: int) -> float: # [0,tau]
 	return latt * tau/size
-def getAngleForDay(latt: int,day: int,size: int,tilt: int|float) -> float:
-	return (lattitudeToAngle(latt,size) + getCurrentTilt(day,tilt)) % tau
-def getVectorForDay(latt: int,day: int,size: int,tilt: int|float) -> tuple[float,float]: # (float[-GRID_SIZE/tau,GRID_SIZE/tau],float[-GRID_SIZE/tau,GRID_SIZE/tau])
-	theta = getAngleForDay(latt,day,size,tilt)
+def getAngleForDay(latt: int,day: int,size: int,tilt: int|float) -> float: # [0,tau]
 	return (
-		(size/tau) * cos(theta),
-		(size/tau) * sin(theta),
+		lattitudeToAngle(latt,size) + getCurrentTilt(day,tilt)
+	) % tau
+def getVectorForDay(latt: int,day: int,size: int,tilt: int|float) -> tuple[float,float]: # <[0,RADIUS],[0,RADIUS]>
+	theta = getAngleForDay(latt,day,size,tilt) # [0,tau]
+	return (
+		(size/tau) * cos(theta), # [0,RADIUS]
+		(size/tau) * sin(theta), # [0,RADIUS]
 	)
-def getSunlightValue(latt: int,day: int,size: int,tilt: int|float) -> float: # float[-(GRID_SIZE/tau)**2,(GRID_SIZE/tau)**2]
-	x,y = getVectorForDay(latt,day,size,tilt)
-	return x * -(size/tau)
-def getNormalizedSunlightValue(latt: int,day: int,size: int,tilt: int|float) -> float: # float[-(GRID_SIZE/tau)**2,(GRID_SIZE/tau)**2]
+def getSunlightValue(lattitude: int,day: int,size: int,tilt: int|float) -> float: # 
+	# get angle 
+	x,y = getVectorForDay(lattitude,day,size,tilt) # <[0,RADIUS],[0,RADIUS]>
+	return x * -size/tau
+def getNormalizedSunlightValue(lattitude: int,day: int,size: int,tilt: int|float) -> float:
+	# Get average sunlight between top and bottom of globe
 	return (
-		getSunlightValue(latt,day,size,tilt) + getSunlightValue(size - latt,day,size,tilt)
+		getSunlightValue(lattitude,day,size,tilt) + getSunlightValue(size - lattitude,day,size,tilt)
 	)/2
 def getAvgSunlightValue(lattitude: int,sunlightMax: int|float,sunlightMin: int|float,size: int,tilt: int|float) -> float: # float[0,GRID_SIZE]
+	# get sunlight at lattitude for each day of year
 	values = [getNormalizedSunlightValue(lattitude,day,size,tilt) for day in range(365)]
-	return (sum(values)/len(values) + (size/tau)**2) * (sunlightMax - sunlightMin)/(2 * (size/tau)**2) + sunlightMin
-def getSunlight(size: int,sunlightMax: int|float,sunlightMin: int|float,tilt: int|float) -> Image[float]: # float[0,GRID_SIZE]
-	print('generating sunlight...')
-	values = [getAvgSunlightValue(
-		lattitude = y,
-		sunlightMax = sunlightMax,
-		sunlightMin = sunlightMin,
-		size = size,
-		tilt = tilt,
-	) for y in range(size)]
+	# return average sunlight value at that lattitude
+	return (
+		sum(values)/len(values) + (size/tau)**2
+	) * (
+		sunlightMax - sunlightMin
+	) / (
+		2 * (size/tau)**2
+	) + sunlightMin
+def getSunlight(size: int,sunlightMax: int|float,sunlightMin: int|float,tilt: int|float) -> Image[float]: # float[0,size]
+	# get average sunlight for each pixel
 	return Image(
 		size,
-		lambda x,y : values[y],
+		lambda x,y : getAvgSunlightValue(
+			lattitude = y,
+			sunlightMax = sunlightMax,
+			sunlightMin = sunlightMin,
+			size = size,
+			tilt = tilt,
+		),
 	)
 def getGraphDistance(start: Point,end: Point,points: set[Point],size: int):
 	def adj(p: Point) -> set[Point]:
@@ -1018,7 +1041,7 @@ if 'overworld true surface' not in TERRAIN:
 	)
 	cleanMapping('overworld true surface',TERRAIN)
 RANGE['overworld true surface'] = RANGE['overworld surface'] | OVERWORLD_SEA_LEVEL
-if 'overworld true surface derivative x' not in TERRAIN:
+if 'overworld true surface differential x' not in TERRAIN:
 	dx1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y],
@@ -1027,18 +1050,12 @@ if 'overworld true surface derivative x' not in TERRAIN:
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld true surface'][x,y],
 	)
-	print('generating overworld true surface derivative x...')
-	TERRAIN['overworld true surface derivative x']: Image[float] = (dx1 + dx2) / 2
-	cleanMapping('overworld true surface derivative x',TERRAIN)
-RANGE['overworld true surface derivative x'] = (
-	(
-		RANGE['overworld true surface'] - RANGE['overworld true surface']
-	) + (
-		RANGE['overworld true surface'] - RANGE['overworld true surface']
-	)
-) / 2
-if 'overworld true surface derivative y' not in TERRAIN:
-	print('generating overworld true surface derivative y...')
+	print('generating overworld true surface differential x...')
+	TERRAIN['overworld true surface differential x']: Image[float] = (dx1 + dx2) / 2
+	cleanMapping('overworld true surface differential x',TERRAIN)
+RANGE['overworld true surface differential x'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
+if 'overworld true surface differential y' not in TERRAIN:
+	print('generating overworld true surface differential y...')
 	dy1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE],
@@ -1047,15 +1064,9 @@ if 'overworld true surface derivative y' not in TERRAIN:
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld true surface'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld true surface'][x,y],
 	)
-	TERRAIN['overworld true surface derivative y'] = (dy1 + dy2) / 2
-	cleanMapping('overworld true surface derivative y',TERRAIN)
-RANGE['overworld true surface derivative y'] = (
-	(
-		RANGE['overworld true surface'] - RANGE['overworld true surface']
-	) + (
-		RANGE['overworld true surface'] - RANGE['overworld true surface']
-	)
-) / 2
+	TERRAIN['overworld true surface differential y'] = (dy1 + dy2) / 2
+	cleanMapping('overworld true surface differential y',TERRAIN)
+RANGE['overworld true surface differential y'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
 if 'midworld land' not in TERRAIN:
 	print('generating midworld land...')
 	bins = {
@@ -1151,6 +1162,44 @@ if 'overworld pressure' not in TERRAIN:
 	).scale(OVERWORLD_PRESSURE_RANGE)
 	cleanMapping('overworld pressure',TERRAIN)
 RANGE['overworld pressure'] = RANGE['overworld true surface']
+if 'overworld pressure differential x' not in TERRAIN:
+	print('generating overworld temperature differential x...')
+	dx1: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld pressure'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld pressure'][x,y],
+	)
+	dx2: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][(x - 1) % GRID_SIZE,y],
+	)
+	TERRAIN['overworld pressure differential x']: Image[float] = (dx1 + dx2)/2
+	cleanMapping('overworld pressure differential x',TERRAIN)
+RANGE['overworld pressure differential x'] = (
+	(
+		RANGE['overworld pressure'] - RANGE['overworld pressure']
+	) + (
+		RANGE['overworld pressure'] - RANGE['overworld pressure']
+	)
+) / 2
+if 'overworld pressure differential y' not in TERRAIN:
+	print('generating overworld pressure differential y...')
+	dy1: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld pressure'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld pressure'][x,y],
+	)
+	dy2: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][x,(y - 1) % GRID_SIZE],
+	)
+	TERRAIN['overworld pressure differential y']: Image[float] = (dy1 + dy2)/2
+	cleanMapping('overworld pressure differential y',TERRAIN)
+RANGE['overworld pressure differential y'] = (
+	(
+		RANGE['overworld pressure'] - RANGE['overworld pressure']
+	) + (
+		RANGE['overworld pressure'] - RANGE['overworld pressure']
+	)
+) / 2
 if 'overworld temperature' not in TERRAIN:
 	print('generating overworld temperature...')
 	initial_temperature: Image[float] = (
@@ -1240,8 +1289,8 @@ if 'ice' not in TERRAIN:
 		TERRAIN['overworld temperature'] < OVERWORLD_ICE_LEVEL
 	) & ~TERRAIN['overworld land']
 	cleanMapping('ice',TERRAIN)
-if 'overworld temperature derivative x' not in TERRAIN:
-	print('generating overworld temperature derivative x...')
+if 'overworld temperature differential x' not in TERRAIN:
+	print('generating overworld temperature differential x...')
 	dx1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
@@ -1250,17 +1299,17 @@ if 'overworld temperature derivative x' not in TERRAIN:
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][(x - 1) % GRID_SIZE,y],
 	)
-	TERRAIN['overworld temperature derivative x']: Image[float] = (dx1 + dx2)/2
-	cleanMapping('overworld temperature derivative x',TERRAIN)
-RANGE['overworld temperature derivative x'] = (
+	TERRAIN['overworld temperature differential x']: Image[float] = (dx1 + dx2)/2
+	cleanMapping('overworld temperature differential x',TERRAIN)
+RANGE['overworld temperature differential x'] = (
 	(
 		RANGE['overworld temperature'] - RANGE['overworld temperature']
 	) + (
 		RANGE['overworld temperature'] - RANGE['overworld temperature']
 	)
 ) / 2
-if 'overworld temperature derivative y' not in TERRAIN:
-	print('generating overworld temperature derivative y...')
+if 'overworld temperature differential y' not in TERRAIN:
+	print('generating overworld temperature differential y...')
 	dy1: Image[float] = Image(
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
@@ -1269,9 +1318,9 @@ if 'overworld temperature derivative y' not in TERRAIN:
 		GRID_SIZE,
 		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][x,(y - 1) % GRID_SIZE],
 	)
-	TERRAIN['overworld temperature derivative y']: Image[float] = (dy1 + dy2)/2
-	cleanMapping('overworld temperature derivative y',TERRAIN)
-RANGE['overworld temperature derivative y'] = (
+	TERRAIN['overworld temperature differential y']: Image[float] = (dy1 + dy2)/2
+	cleanMapping('overworld temperature differential y',TERRAIN)
+RANGE['overworld temperature differential y'] = (
 	(
 		RANGE['overworld temperature'] - RANGE['overworld temperature']
 	) + (
