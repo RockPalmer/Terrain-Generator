@@ -79,7 +79,7 @@ TERRAIN_NOISE_SCALE: int = 1
 OVERWORLD_PRESSURE_SCALE: float = 0.75
 OVERWORLD_PRESSURE_FREQUENCY: int|float = 1
 TERRAIN_NOISE_OCTAVES: int = 8
-NOISE_SEED: int = 500
+NOISE_SEED: int = 600
 AXIS_TILT: float = 23.44 * tau/360
 UI_PANEL_WIDTH: int = 500
 UI_PANEL_MARGIN: int = 20
@@ -578,15 +578,18 @@ def getAvgSunlightValue(lattitude: int,sunlightMax: int|float,sunlightMin: int|f
 	) + sunlightMin
 def getSunlight(size: int,sunlightMax: int|float,sunlightMin: int|float,tilt: int|float) -> Image[float]: # float[0,size]
 	# get average sunlight for each pixel
-	return Image(
-		size,
-		lambda x,y : getAvgSunlightValue(
+	values = [
+		getAvgSunlightValue(
 			lattitude = y,
 			sunlightMax = sunlightMax,
 			sunlightMin = sunlightMin,
 			size = size,
 			tilt = tilt,
-		),
+		) for y in range(size)
+	]
+	return Image(
+		size,
+		lambda x,y : values[y],
 	)
 def getGraphDistance(start: Point,end: Point,points: set[Point],size: int):
 	def adj(p: Point) -> set[Point]:
@@ -1148,20 +1151,24 @@ if 'overworld general wind angle' not in TERRAIN:
 RANGE['overworld general wind angle'] = Interval(0,4 * pi)
 if 'overworld pressure' not in TERRAIN:
 	print('generating overworld pressure...')
-	surface_related_pressure = RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
+	surface_related_pressure = (
+		RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
+	).scale(
+		RANGE['overworld true surface'],
+		OVERWORLD_PRESSURE_RANGE,
+	)
 	surface_related_pressure -= surface_related_pressure.min()
 	sunlight_related_pressure = (
 		RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']
 	).scale(RANGE['overworld sunlight'],0,1)
 	pressure_diff = (
-		NOISE_MAP[pBlock].scale(-1,1) * sunlight_related_pressure
+		NOISE_MAP[pBlock] * sunlight_related_pressure
 	).scale(-1,1,OVERWORLD_PRESSURE_RANGE)
-	values = {v for v in pressure_diff}
 	TERRAIN['overworld pressure'] = (
 		pressure_diff + surface_related_pressure
-	).scale(OVERWORLD_PRESSURE_RANGE)
+	)/2
 	cleanMapping('overworld pressure',TERRAIN)
-RANGE['overworld pressure'] = RANGE['overworld true surface']
+RANGE['overworld pressure'] = OVERWORLD_PRESSURE_RANGE
 if 'overworld pressure differential x' not in TERRAIN:
 	print('generating overworld temperature differential x...')
 	dx1: Image[float] = Image(

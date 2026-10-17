@@ -1,18 +1,7 @@
-true_surface ~ C
-surface_related_pressure_a ~ C
-surface_related_pressure ~ C
-sunlight_related_pressure = OVERWORLD_SUNLIGHT_MAX - sunlight(t)
-pressure_diff = NOISE * sunlight_related_pressure
-pressure = pressure_diff + surface_related_pressure
-inv_pressure = OVERWORLD_PRESSURE_MAX - pressure
-humidity = (
-	inv_pressure + temperature + water_ratio
-)/3
-surface ~ C
-distance ~ C
-temperature = ifMap(
-	(sunlight(t) + distance.max - distance)/2,
-	land,
-	(sunlight(t) + distance.max - distance)/2 - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
-)
-rain = (temperature + humidity)/2
+rain = 
+	2/6 * sunlight
+	- 2/6 * distance_from_sea_level
+	- N(0,(65025 + sunlight^2)/5760)
+	- true_surface/12
+	+ water_ratio * 255/72
+	+ (1275/8?land?1243/8)
