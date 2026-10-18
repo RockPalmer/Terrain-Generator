@@ -19,6 +19,7 @@ from math import (
 	acos,
 	floor,
 	ceil,
+	atan,
 )
 from pathlib import Path
 from numpy import array
@@ -64,7 +65,7 @@ TERRAIN_DIRECTORY.mkdir(parents = True,exist_ok = True)
 NOISE_DIRECTORY = Path('noise')
 NOISE_DIRECTORY.mkdir(parents = True,exist_ok = True)
 
-GRID_SIZE: int = 256
+GRID_SIZE: int = 128
 CELL_SIZE: int = 3
 OVERWORLD_SURFACE_RANGE: Interval = Interval(0,255)
 OVERWORLD_DEPTH_RANGE: Interval = Interval(0,255)
@@ -77,6 +78,11 @@ OVERWORLD_RAIN_RANGE: Interval = Interval(0,255)
 OVERWORLD_SNOW_RANGE: Interval = Interval(0,255)
 OVERWORLD_PH_RANGE: Interval = Interval(0,14)
 OVERWORLD_WIND_RANGE: Interval = Interval(-1,1)
+CIRCUMFERENCE: int = 24901
+ALTITUDE_MAX: float = 3.1
+ALTITUDE_MIN: float = 20902257/5280
+ALTITUDE_DIFF: float = ALTITUDE_MAX - ALTITUDE_MIN
+GRID_DIST: float = CIRCUMFERENCE/GRID_SIZE
 OVERWORLD_WATER_RATIO = 0.71
 MIDWORLD_WATER_RATIO = 0.4
 TERRAIN_NOISE_SCALE: int = 1
@@ -195,18 +201,6 @@ ARGS: dict[str,dict] = {
 			'WATER_RATIO_RADIUS' : WATER_RATIO_RADIUS,
 		},
 	},
-	'overworld true surface differential x' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {},
-	},
-	'overworld true surface differential y' : {
-		'terrain' : [
-			'overworld true surface',
-		],
-		'nonterrain' : {},
-	},
 	'midworld land' : {
 		'terrain' : [
 			'midworld surface',
@@ -265,37 +259,19 @@ ARGS: dict[str,dict] = {
 	},
 	'overworld wind x' : {
 		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
+		'nonterrain' : {},
 	},
 	'overworld wind y' : {
 		'terrain' : [],
-		'nonterrain' : {
-			'GRID_SIZE' : GRID_SIZE,
-		},
+		'nonterrain' : {},
 	},
 	'overworld pressure' : {
-		'terrain' : [
-			'overworld true surface',
-			'overworld sunlight',
-		],
-		'nonterrain' : {
-			'OVERWORLD_PRESSURE_MAX' : OVERWORLD_PRESSURE_RANGE.max,
-			'OVERWORLD_PRESSURE_MIN' : OVERWORLD_PRESSURE_RANGE.min,
-		},
+		'terrain' : [],
+		'nonterrain' : {},
 	},
 	'overworld temperature' : {
-		'terrain' : [
-			'overworld sunlight',
-			'overworld distance from sea level',
-			'overworld land',
-		],
-		'nonterrain' : {
-			'OVERWORLD_TEMPERATURE_LAND_DIFFERENCE' : OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
-			'OVERWORLD_TEMPERATURE_MAX' : OVERWORLD_TEMPERATURE_RANGE.max,
-			'OVERWORLD_TEMPERATURE_MIN' : OVERWORLD_TEMPERATURE_RANGE.min,
-		},
+		'terrain' : [],
+		'nonterrain' : {},
 	},
 	'overworld water ratio' : {
 		'terrain' : [
@@ -833,6 +809,11 @@ def addColor(trn: dict[str,Image]) -> None:
 				)
 			elif RANGE[k] == Interval(0,(1 << 24) - 1) or RANGE[k] == Interval(0,255 << 16):
 				trn[k] = scrMap(intToColor,trn[k])
+			elif RANGE[k] == Interval(-float('inf'),float('inf')):
+				trn[k] = scrMap(
+					lambda v : (int(v),int(v),int(v)),
+					trn[k].scale(0,255),
+				)
 			else:
 				trn[k] = scrMap(
 					lambda v : (int(v),int(v),int(v)),
@@ -1064,22 +1045,6 @@ if 'overworld true surface' not in TERRAIN:
 	)
 	cleanMapping('overworld true surface',TERRAIN)
 RANGE['overworld true surface'] = RANGE['overworld surface'] | OVERWORLD_SEA_LEVEL
-if 'overworld true surface differential x' not in TERRAIN:
-	print('generating overworld true surface differential x...')
-	TERRAIN['overworld true surface differential x']: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][(x - 1) % GRID_SIZE,y],
-	)
-	cleanMapping('overworld true surface differential x',TERRAIN)
-RANGE['overworld true surface differential x'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
-if 'overworld true surface differential y' not in TERRAIN:
-	print('generating overworld true surface differential y...')
-	TERRAIN['overworld true surface differential y']: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld true surface'][x,y] - TERRAIN['overworld true surface'][x,(y - 1) % GRID_SIZE],
-	)
-	cleanMapping('overworld true surface differential y',TERRAIN)
-RANGE['overworld true surface differential y'] = RANGE['overworld true surface'] - RANGE['overworld true surface']
 if 'midworld land' not in TERRAIN:
 	print('generating midworld land...')
 	bins = {
@@ -1151,21 +1116,23 @@ if 'overworld water ratio' not in TERRAIN:
 	)
 	cleanMapping('overworld water ratio',TERRAIN)
 RANGE['overworld water ratio'] = Interval(0,WATER_RATIO_RADIUS)
-RANGE['overworld temperature'] = OVERWORLD_TEMPERATURE_RANGE
-RANGE['overworld wind x'] = OVERWORLD_WIND_RANGE
-RANGE['overworld wind y'] = OVERWORLD_WIND_RANGE
-RANGE['overworld pressure'] = OVERWORLD_PRESSURE_RANGE
+RANGE['overworld temperature'] = Interval(-float('inf'),float('inf'))
+RANGE['overworld wind x'] = Interval(-float('inf'),float('inf'))
+RANGE['overworld wind y'] = Interval(-float('inf'),float('inf'))
+RANGE['overworld pressure'] = Interval(-float('inf'),float('inf'))
 if (
 	'overworld wind x' not in TERRAIN or
 	'overworld wind y' not in TERRAIN or
 	'overworld pressure' not in TERRAIN or
-	'overworld humidity' not in TERRAIN or
 	'overworld temperature' not in TERRAIN
 ):
+	TERRAIN['overworld wind x'] = Video(10,GRID_SIZE,0)
+	TERRAIN['overworld wind y'] = Video(10,GRID_SIZE,0)
+	TERRAIN['overworld pressure'] = Video(10,GRID_SIZE,0)
+	TERRAIN['overworld temperature'] = Video(10,GRID_SIZE,0)
 	cleanMapping('overworld wind x',TERRAIN)
 	cleanMapping('overworld wind y',TERRAIN)
 	cleanMapping('overworld pressure',TERRAIN)
-	cleanMapping('overworld humidity',TERRAIN)
 	cleanMapping('overworld temperature',TERRAIN)
 	'''
 	initial_temperature: Image[float] = (
@@ -1185,6 +1152,54 @@ if (
 			OVERWORLD_SEA_LEVEL - TERRAIN['overworld surface'],
 		) * water_ratio
 	).scale(0,OVERWORLD_SEA_LEVEL,0,1)
+	true_surface = TERRAIN['overworld true surface'].scale(RANGE['overworld surface'],0,ALTITUDE_DIFF)
+	surface_incline_left: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : true_surface[x,y] - true_surface[(x - 1) % GRID_SIZE,y],
+	)
+	surface_incline_right: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : true_surface[x,y] - true_surface[(x + 1) % GRID_SIZE,y],
+	)
+	surface_incline_up: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : true_surface[x,y] - true_surface[x,(y - 1) % GRID_SIZE],
+	)
+	surface_incline_down: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : true_surface[x,y] - true_surface[x,(y + 1) % GRID_SIZE],
+	)
+
+	surface_incline_left_angle = scrMap(atan,surface_incline_left/GRID_DIST)/pi
+	surface_incline_right_angle = scrMap(atan,surface_incline_right/GRID_DIST)/pi
+	surface_incline_up_angle = scrMap(atan,surface_incline_up/GRID_DIST)/pi
+	surface_incline_down_angle = scrMap(atan,surface_incline_down/GRID_DIST)/pi
+
+	surface_incline_left_angle_neg = 1 + scrMap(atan,-surface_incline_left/GRID_DIST)/pi
+	surface_incline_right_angle_neg = 1 + scrMap(atan,-surface_incline_right/GRID_DIST)/pi
+	surface_incline_up_angle_neg = 1 + scrMap(atan,-surface_incline_up/GRID_DIST)/pi
+	surface_incline_down_angle_neg = 1 + scrMap(atan,-surface_incline_down/GRID_DIST)/pi
+
+	surface_incline_left = ifMap(
+		surface_incline_left_angle,
+		surface_incline_left >= 0,
+		surface_incline_left_angle_neg
+	)
+	surface_incline_right = ifMap(
+		surface_incline_right_angle,
+		surface_incline_right >= 0,
+		surface_incline_right_angle_neg
+	)
+	surface_incline_up = ifMap(
+		surface_incline_up_angle,
+		surface_incline_up >= 0,
+		surface_incline_up_angle_neg
+	)
+	surface_incline_down = ifMap(
+		surface_incline_down_angle,
+		surface_incline_down >= 0,
+		surface_incline_down_angle_neg
+	)
 
 	initial_temperature = (
 		TERRAIN['overworld sunlight'].scale(
@@ -1199,20 +1214,30 @@ if (
 	)/2
 	mid = (OVERWORLD_TEMPERATURE_RANGE.max + OVERWORLD_TEMPERATURE_RANGE.min)/2
 	diff_from_mid = mid - initial_temperature
-	TERRAIN['overworld temperature']: Image[float] = mid + (diff_from_mid * ocean_temperature_cusion)
-	TERRAIN['overworld pressure']: Image[float] = RANGE['overworld temperature'].max - TERRAIN['overworld temperature']
+	TERRAIN['overworld temperature'][0]: Image[float] = mid + (diff_from_mid * ocean_temperature_cusion)
+	TERRAIN['overworld pressure'][0]: Image[float] = RANGE['overworld temperature'].max - TERRAIN['overworld temperature'][0]
 	inv_sunlight = (RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']).scale(RANGE['overworld sunlight'],0,5)
-	TERRAIN['overworld wind x']: Image[float] = Image(
+	wind_x: Image[float] = Image(
 		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][(x - 1) % GRID_SIZE,y] + inv_sunlight[x,y]
+		lambda x,y : TERRAIN['overworld pressure'][0,x,y] - TERRAIN['overworld pressure'][0,(x - 1) % GRID_SIZE,y] + inv_sunlight[x,y]
 	) / 10
-	TERRAIN['overworld wind y']: Image[float] = Image(
+	wind_y: Image[float] = Image(
 		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][x,(y - 1) % GRID_SIZE] + (
+		lambda x,y : TERRAIN['overworld pressure'][0,x,y] - TERRAIN['overworld pressure'][0,x,(y - 1) % GRID_SIZE] + (
 			inv_sunlight[x,y] if y <= GRID_SIZE / 2 else -inv_sunlight[x,y]
 		)
 	) / 10
-	for i in range(10):
+	TERRAIN['overworld wind x'][0] = ifMap(
+		surface_incline_right * wind_x,
+		wind_x >= 0,
+		surface_incline_left * wind_x,
+	)
+	TERRAIN['overworld wind y'][0] = ifMap(
+		surface_incline_down * wind_y,
+		wind_y >= 0,
+		surface_incline_up * wind_y,
+	)
+	for l in range(1,10):
 		'''
 		surface_related_pressure = (
 			RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
@@ -1233,21 +1258,49 @@ if (
 		'''
 		counts = Image(GRID_SIZE,0)
 		ntemp = Image(GRID_SIZE,0)
+		print('>>generating new temperature...')
 		for i in range(GRID_SIZE):
 			for j in range(GRID_SIZE):
 				p = (
-					round(i + TERRAIN['overworld wind x']) % GRID_SIZE,
-					round(j + TERRAIN['overworld wind y']) % GRID_SIZE,
+					round(i + TERRAIN['overworld wind x'][l - 1]) % GRID_SIZE,
+					round(j + TERRAIN['overworld wind y'][l - 1]) % GRID_SIZE,
 				)
 				if counts[p] == 0:
-					ntemp[p] = TERRAIN['overworld temperature'][i,j]
+					ntemp[p] = TERRAIN['overworld temperature'][l - 1,i,j]
 				else:
-					ntemp[p] = (ntemp[p] * counts[p] + TERRAIN['overworld temperature'][i,j]) / (counts[p] + 1)
+					ntemp[p] = (ntemp[p] * counts[p] + TERRAIN['overworld temperature'][l - 1,i,j]) / (counts[p] + 1)
 					counts[p] += 1
-		diffs = TERRAIN['overworld temperature'] - ntemps
-		TERRAIN['overworld temperature'] += diffs * ocean_temperature_cusion
-		RANGE['overworld temperature'].max - TERRAIN['overworld temperature']
-		raise TypeError
+		print('>>generating diffs...')
+		diffs = TERRAIN['overworld temperature'][l - 1] - ntemps
+		print('>>generating temperature...')
+		TERRAIN['overworld temperature'][l] = TERRAIN['overworld temperature'][l - 1] + diffs * ocean_temperature_cusion
+		print('>>generating pressure...')
+		TERRAIN['overworld pressure'][l]: Image[float] = RANGE['overworld temperature'].max - TERRAIN['overworld temperature'][l]
+		print('>>generating wind_x...')
+		wind_x: Image[float] = Image(
+			GRID_SIZE,
+			lambda x,y : TERRAIN['overworld pressure'][l,x,y] - TERRAIN['overworld pressure'][l,(x - 1) % GRID_SIZE,y] + inv_sunlight[x,y]
+		) / 10
+		print('>>generating wind_y...')
+		wind_y: Image[float] = Image(
+			GRID_SIZE,
+			lambda x,y : TERRAIN['overworld pressure'][l,x,y] - TERRAIN['overworld pressure'][l,x,(y - 1) % GRID_SIZE] + (
+				inv_sunlight[x,y] if y <= GRID_SIZE / 2 else -inv_sunlight[x,y]
+			)
+		) / 10
+		print('>>generating wind x...')
+		TERRAIN['overworld wind x'][l] = ifMap(
+			surface_incline_right * wind_x,
+			wind_x[l - 1] >= 0,
+			surface_incline_left * wind_x,
+		)
+		print('>>generating wind y...')
+		TERRAIN['overworld wind y'][l] = ifMap(
+			surface_incline_down * wind_y,
+			wind_y >= 0,
+			surface_incline_up * wind_y,
+		)
+'''
 if 'overworld humidity' not in TERRAIN:
 	print('generating overworld humidity...')
 	inv_pressure = RANGE['overworld pressure'].max - TERRAIN['overworld pressure']
@@ -1315,6 +1368,7 @@ if 'ice' not in TERRAIN:
 		TERRAIN['overworld temperature'] < OVERWORLD_ICE_LEVEL
 	) & ~TERRAIN['overworld land']
 	cleanMapping('ice',TERRAIN)
+'''
 if 'overworld-midworld connection edges' not in TERRAIN:
 	print('generating overworld-midworld connection edges...')
 	offsets = {

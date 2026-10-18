@@ -418,6 +418,21 @@ class Video(Generic[T]):
 			lambda v : abs(v),
 			self,
 		)
+	def __round__(self) -> Image:
+		return scrMapVideo(
+			lambda v : round(v),
+			self,
+		)
+	def __floor__(self) -> Image:
+		return scrMapVideo(
+			lambda v : floor(v),
+			self,
+		)
+	def __ceil__(self) -> Image:
+		return scrMapVideo(
+			lambda v : ceil(v),
+			self,
+		)
 	def isNone(self) -> bool:
 		return scrMapVideo(
 			lambda v : v is None,
