@@ -32,6 +32,8 @@ from Dropdown import Dropdown
 from Interval import Interval
 from NoiseBlock import NoiseBlock
 from collections import deque
+import matplotlib.pyplot as plt
+import numpy as np
 
 Color = tuple[int,int,int]
 Point = tuple[int,int]
@@ -63,7 +65,7 @@ NOISE_DIRECTORY = Path('noise')
 NOISE_DIRECTORY.mkdir(parents = True,exist_ok = True)
 
 GRID_SIZE: int = 256
-CELL_SIZE: int = 4
+CELL_SIZE: int = 3
 OVERWORLD_SURFACE_RANGE: Interval = Interval(0,255)
 OVERWORLD_DEPTH_RANGE: Interval = Interval(0,255)
 MIDWORLD_SURFACE_RANGE: Interval = Interval(0,255)
@@ -73,6 +75,8 @@ OVERWORLD_PRESSURE_RANGE: Interval = Interval(0,255)
 OVERWORLD_HUMIDITY_RANGE: Interval = Interval(0,255)
 OVERWORLD_RAIN_RANGE: Interval = Interval(0,255)
 OVERWORLD_SNOW_RANGE: Interval = Interval(0,255)
+OVERWORLD_PH_RANGE: Interval = Interval(0,14)
+OVERWORLD_WIND_RANGE: Interval = Interval(-1,1)
 OVERWORLD_WATER_RATIO = 0.71
 MIDWORLD_WATER_RATIO = 0.4
 TERRAIN_NOISE_SCALE: int = 1
@@ -118,6 +122,13 @@ ARGS: dict[str,dict] = {
 		'nonterrain' : {
 			'OVERWORLD_SURFACE_MAX' : OVERWORLD_SURFACE_RANGE.max,
 			'OVERWORLD_SURFACE_MIN' : OVERWORLD_SURFACE_RANGE.min,
+		},
+	},
+	'overworld soil pH' : {
+		'terrain': [],
+		'nonterrain' : {
+			'OVERWORLD_PH_MAX' : OVERWORLD_PH_RANGE.max,
+			'OVERWORLD_PH_MIN' : OVERWORLD_PH_RANGE.min,
 		},
 	},
 	'overworld land' : {
@@ -252,13 +263,13 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_WATER_RATIO' : OVERWORLD_WATER_RATIO,
 		},
 	},
-	'overworld general wind magnitude' : {
+	'overworld wind x' : {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
 		},
 	},
-	'overworld general wind angle' : {
+	'overworld wind y' : {
 		'terrain' : [],
 		'nonterrain' : {
 			'GRID_SIZE' : GRID_SIZE,
@@ -273,18 +284,6 @@ ARGS: dict[str,dict] = {
 			'OVERWORLD_PRESSURE_MAX' : OVERWORLD_PRESSURE_RANGE.max,
 			'OVERWORLD_PRESSURE_MIN' : OVERWORLD_PRESSURE_RANGE.min,
 		},
-	},
-	'overworld pressure differential x' : {
-		'terrain' : [
-			'overworld pressure',
-		],
-		'nonterrain' : {},
-	},
-	'overworld pressure differential y' : {
-		'terrain' : [
-			'overworld pressure',
-		],
-		'nonterrain' : {},
 	},
 	'overworld temperature' : {
 		'terrain' : [
@@ -354,18 +353,6 @@ ARGS: dict[str,dict] = {
 		'nonterrain' : {
 			'OVERWORLD_ICE_LEVEL' : OVERWORLD_ICE_LEVEL,
 		},
-	},
-	'overworld temperature differential x' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {},
-	},
-	'overworld temperature differential y' : {
-		'terrain' : [
-			'overworld temperature',
-		],
-		'nonterrain' : {},
 	},
 	'overworld-midworld connection edges' : {
 		'terrain' : [
@@ -447,7 +434,17 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 				frequency = FREQUENCIES[i],
 				time = 0,
 			),
-		),
+		),(
+			'overworld soil pH',
+			NoiseBlock(
+				dimensions = 4,
+				size = GRID_SIZE,
+				seed = NOISE_SEED + 3,
+				scale = TERRAIN_NOISE_SCALE,
+				frequency = FREQUENCIES[i],
+				time = 0,
+			),
+		)
 	}
 NOISE_DEPENDENCIES.add(
 	(
@@ -455,7 +452,7 @@ NOISE_DEPENDENCIES.add(
 		NoiseBlock(
 			dimensions = 4,
 			size = GRID_SIZE,
-			seed = NOISE_SEED + 3,
+			seed = NOISE_SEED + 4,
 			scale = OVERWORLD_PRESSURE_SCALE,
 			frequency = OVERWORLD_PRESSURE_FREQUENCY,
 			time = 0,
@@ -837,13 +834,10 @@ def addColor(trn: dict[str,Image]) -> None:
 			elif RANGE[k] == Interval(0,(1 << 24) - 1) or RANGE[k] == Interval(0,255 << 16):
 				trn[k] = scrMap(intToColor,trn[k])
 			else:
-				values = {v for v in trn[k]}
-				u = (min(values),max(values))
 				trn[k] = scrMap(
 					lambda v : (int(v),int(v),int(v)),
 					trn[k].scale(RANGE[k],0,255),
 				)
-				values = {v for v in trn[k]}
 		elif isinstance(trn[k].first(),tuple) and len(trn[k].first()) == 2:
 			trn[k] = scrMap(
 				lambda v : pointToColor(v),
@@ -881,6 +875,14 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 		frequency = FREQUENCIES[i],
 		time = 0,
 	)
+	block3 = NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 3,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)
 	if block0 not in NOISE_MAP:
 		NOISE_MAP[block0] = getNoise(block0)
 		cleanNoiseMapping(block0,TERRAIN)
@@ -890,10 +892,13 @@ for i in range(TERRAIN_NOISE_OCTAVES):
 	if block2 not in NOISE_MAP:
 		NOISE_MAP[block2] = getNoise(block2)
 		cleanNoiseMapping(block2,TERRAIN)
+	if block3 not in NOISE_MAP:
+		NOISE_MAP[block3] = getNoise(block3)
+		cleanNoiseMapping(block3,TERRAIN)
 pBlock = NoiseBlock(
 	dimensions = 4,
 	size = GRID_SIZE,
-	seed = NOISE_SEED + 3,
+	seed = NOISE_SEED + 4,
 	scale = OVERWORLD_PRESSURE_SCALE,
 	frequency = OVERWORLD_PRESSURE_FREQUENCY,
 	time = 0,
@@ -933,6 +938,16 @@ perlin_noise_2: Image[float] = sum(
 		time = 0,
 	)] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
 ) / total_amplitude
+perlin_noise_3: Image[float] = sum(
+	NOISE_MAP[NoiseBlock(
+		dimensions = 4,
+		size = GRID_SIZE,
+		seed = NOISE_SEED + 3,
+		scale = TERRAIN_NOISE_SCALE,
+		frequency = FREQUENCIES[i],
+		time = 0,
+	)] * amplitudes[i] for i in range(TERRAIN_NOISE_OCTAVES)
+) / total_amplitude
 if 'overworld surface original' not in TERRAIN:
 	print('generating overworld surface original...')
 	TERRAIN['overworld surface original']: Image[float] = perlin_noise_0.scale(OVERWORLD_SURFACE_RANGE)
@@ -963,6 +978,11 @@ if 'overworld land' not in TERRAIN:
 else:
 	water_points = {(i,j) for (i,j),v in TERRAIN['overworld land'].enumerate() if not v}
 	OVERWORLD_SEA_LEVEL = int(max({TERRAIN['overworld surface original'][p] for p in water_points})) + 1
+if 'overworld soil pH' not in TERRAIN:
+	print('generating overworld soil pH...')
+	TERRAIN['overworld soil pH']: Image[float] = perlin_noise_3.scale(OVERWORLD_PH_RANGE)
+	cleanMapping('overworld soil pH',TERRAIN)
+RANGE['overworld soil pH'] = OVERWORLD_PH_RANGE
 if 'overworld surface fluctuation' not in TERRAIN:
 	print('generating overworld surface fluctuation...')
 	TERRAIN['overworld surface fluctuation']: Image[float] = Image(
@@ -1133,82 +1153,31 @@ if 'overworld distance from sea level' not in TERRAIN:
 	TERRAIN['overworld distance from sea level']: Image[float] = abs(TERRAIN['overworld surface'] - OVERWORLD_SEA_LEVEL)
 	cleanMapping('overworld distance from sea level',TERRAIN)
 RANGE['overworld distance from sea level'] = abs(RANGE['overworld surface'] - OVERWORLD_SEA_LEVEL)
-if 'overworld general wind magnitude' not in TERRAIN:
-	print('generating overworld general wind magnitude...')
-	TERRAIN['overworld general wind magnitude'] = Image(
+if 'overworld water ratio' not in TERRAIN:
+	print('generating overworld water ratio...')
+	TERRAIN['overworld water ratio'] = WATER_RATIO_RADIUS - Image(
 		GRID_SIZE,
-		lambda x,y : getGenWindMagnitude(y,GRID_SIZE),
+		lambda x,y : getDistToWater((x,y),WATER_RATIO_RADIUS,TERRAIN['overworld land'],GRID_SIZE),
 	)
-	cleanMapping('overworld general wind magnitude',TERRAIN)
-RANGE['overworld general wind magnitude'] = Interval(0,GRID_SIZE / 8)
-if 'overworld general wind angle' not in TERRAIN:
-	print('generating overworld general wind angle...')
-	TERRAIN['overworld general wind angle'] = Image(
-		GRID_SIZE,
-		lambda x,y : getGenWindAngle(y,GRID_SIZE),
-	)
-	cleanMapping('overworld general wind angle',TERRAIN)
-RANGE['overworld general wind angle'] = Interval(0,4 * pi)
-if 'overworld pressure' not in TERRAIN:
-	print('generating overworld pressure...')
-	surface_related_pressure = (
-		RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
-	).scale(
-		RANGE['overworld true surface'],
-		OVERWORLD_PRESSURE_RANGE,
-	)
-	surface_related_pressure -= surface_related_pressure.min()
-	sunlight_related_pressure = (
-		RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']
-	).scale(RANGE['overworld sunlight'],0,1)
-	pressure_diff = (
-		NOISE_MAP[pBlock] * sunlight_related_pressure
-	).scale(-1,1,OVERWORLD_PRESSURE_RANGE)
-	TERRAIN['overworld pressure'] = (
-		pressure_diff + surface_related_pressure
-	)/2
-	cleanMapping('overworld pressure',TERRAIN)
+	cleanMapping('overworld water ratio',TERRAIN)
+RANGE['overworld water ratio'] = Interval(0,WATER_RATIO_RADIUS)
+RANGE['overworld temperature'] = OVERWORLD_TEMPERATURE_RANGE
+RANGE['overworld wind x'] = OVERWORLD_WIND_RANGE
+RANGE['overworld wind y'] = OVERWORLD_WIND_RANGE
 RANGE['overworld pressure'] = OVERWORLD_PRESSURE_RANGE
-if 'overworld pressure differential x' not in TERRAIN:
-	print('generating overworld temperature differential x...')
-	dx1: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld pressure'][x,y],
-	)
-	dx2: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][(x - 1) % GRID_SIZE,y],
-	)
-	TERRAIN['overworld pressure differential x']: Image[float] = (dx1 + dx2)/2
-	cleanMapping('overworld pressure differential x',TERRAIN)
-RANGE['overworld pressure differential x'] = (
-	(
-		RANGE['overworld pressure'] - RANGE['overworld pressure']
-	) + (
-		RANGE['overworld pressure'] - RANGE['overworld pressure']
-	)
-) / 2
-if 'overworld pressure differential y' not in TERRAIN:
-	print('generating overworld pressure differential y...')
-	dy1: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld pressure'][x,y],
-	)
-	dy2: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][x,(y - 1) % GRID_SIZE],
-	)
-	TERRAIN['overworld pressure differential y']: Image[float] = (dy1 + dy2)/2
-	cleanMapping('overworld pressure differential y',TERRAIN)
-RANGE['overworld pressure differential y'] = (
-	(
-		RANGE['overworld pressure'] - RANGE['overworld pressure']
-	) + (
-		RANGE['overworld pressure'] - RANGE['overworld pressure']
-	)
-) / 2
-if 'overworld temperature' not in TERRAIN:
-	print('generating overworld temperature...')
+if (
+	'overworld wind x' not in TERRAIN or
+	'overworld wind y' not in TERRAIN or
+	'overworld pressure' not in TERRAIN or
+	'overworld humidity' not in TERRAIN or
+	'overworld temperature' not in TERRAIN or
+):
+	cleanMapping('overworld wind x',TERRAIN)
+	cleanMapping('overworld wind y',TERRAIN)
+	cleanMapping('overworld pressure',TERRAIN)
+	cleanMapping('overworld humidity',TERRAIN)
+	cleanMapping('overworld temperature',TERRAIN)
+	'''
 	initial_temperature: Image[float] = (
 		TERRAIN['overworld sunlight'] + (
 			RANGE['overworld distance from sea level'].max - TERRAIN['overworld distance from sea level']
@@ -1219,16 +1188,60 @@ if 'overworld temperature' not in TERRAIN:
 		TERRAIN['overworld land'],
 		initial_temperature - OVERWORLD_TEMPERATURE_LAND_DIFFERENCE,
 	).scale(OVERWORLD_TEMPERATURE_RANGE)
-	cleanMapping('overworld temperature',TERRAIN)
-RANGE['overworld temperature'] = OVERWORLD_TEMPERATURE_RANGE
-if 'overworld water ratio' not in TERRAIN:
-	print('generating overworld water ratio...')
-	TERRAIN['overworld water ratio'] = WATER_RATIO_RADIUS - Image(
+	'''
+	water_ratio = TERRAIN['overworld water ratio'].scale(RANGE['overworld water ratio'],0,1)
+	ocean_temperature_cusion = (
+		abs(
+			OVERWORLD_SEA_LEVEL - TERRAIN['overworld surface'],
+		) * water_ratio
+	).scale(0,OVERWORLD_SEA_LEVEL,0,1)
+	initial_temperature = (
+		TERRAIN['overworld sunlight'].scale(
+			RANGE['overworld sunlight'],
+			OVERWORLD_TEMPERATURE_RANGE,
+		) + (
+			RANGE['overworld surface'].max - TERRAIN['overworld surface']
+		).scale(
+			RANGE['overworld surface'],
+			OVERWORLD_TEMPERATURE_RANGE,
+		)
+	)/2
+	mid = (OVERWORLD_TEMPERATURE_RANGE.max + OVERWORLD_TEMPERATURE_RANGE.min)/2
+	diff_from_mid = mid - initial_temperature
+	TERRAIN['overworld temperature']: Image[float] = mid + (diff_from_mid * ocean_temperature_cusion)
+	TERRAIN['overworld pressure']: Image[float] = RANGE['overworld temperature'].max - TERRAIN['overworld temperature']
+	inv_sunlight = (RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']).scale(TERRAIN['overworld sunlight'],0,5)
+	TERRAIN['overworld wind x']: Image[float] = Image(
 		GRID_SIZE,
-		lambda x,y : getDistToWater((x,y),WATER_RATIO_RADIUS,TERRAIN['overworld land'],GRID_SIZE),
+		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][(x - 1) % GRID_SIZE,y] + inv_sunlight[x,y]
 	)
-	cleanMapping('overworld water ratio',TERRAIN)
-RANGE['overworld water ratio'] = Interval(0,WATER_RATIO_RADIUS)
+	TERRAIN['overworld wind y']: Image[float] = Image(
+		GRID_SIZE,
+		lambda x,y : TERRAIN['overworld pressure'][x,y] - TERRAIN['overworld pressure'][x,(y - 1) % GRID_SIZE] + (
+			inv_sunlight[x,y] if y <= GRID_SIZE / 2 else -inv_sunlight[x,y]
+		)
+	)
+	for i in range(10):
+		'''
+		surface_related_pressure = (
+			RANGE['overworld true surface'].max - TERRAIN['overworld true surface']
+		).scale(
+			RANGE['overworld true surface'],
+			OVERWORLD_PRESSURE_RANGE,
+		)
+		surface_related_pressure -= surface_related_pressure.min()
+		sunlight_related_pressure = (
+			RANGE['overworld sunlight'].max - TERRAIN['overworld sunlight']
+		).scale(RANGE['overworld sunlight'],0,1)
+		pressure_diff = (
+			NOISE_MAP[pBlock] * sunlight_related_pressure
+		).scale(-1,1,OVERWORLD_PRESSURE_RANGE)
+		TERRAIN['overworld pressure'] = (
+			pressure_diff + surface_related_pressure
+		)/2
+		'''
+		TERRAIN['overworld temperature'] = 
+		pass
 if 'overworld humidity' not in TERRAIN:
 	print('generating overworld humidity...')
 	inv_pressure = RANGE['overworld pressure'].max - TERRAIN['overworld pressure']
@@ -1296,44 +1309,6 @@ if 'ice' not in TERRAIN:
 		TERRAIN['overworld temperature'] < OVERWORLD_ICE_LEVEL
 	) & ~TERRAIN['overworld land']
 	cleanMapping('ice',TERRAIN)
-if 'overworld temperature differential x' not in TERRAIN:
-	print('generating overworld temperature differential x...')
-	dx1: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld temperature'][(x + 1) % GRID_SIZE,y] - TERRAIN['overworld temperature'][x,y],
-	)
-	dx2: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][(x - 1) % GRID_SIZE,y],
-	)
-	TERRAIN['overworld temperature differential x']: Image[float] = (dx1 + dx2)/2
-	cleanMapping('overworld temperature differential x',TERRAIN)
-RANGE['overworld temperature differential x'] = (
-	(
-		RANGE['overworld temperature'] - RANGE['overworld temperature']
-	) + (
-		RANGE['overworld temperature'] - RANGE['overworld temperature']
-	)
-) / 2
-if 'overworld temperature differential y' not in TERRAIN:
-	print('generating overworld temperature differential y...')
-	dy1: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld temperature'][x,(y + 1) % GRID_SIZE] - TERRAIN['overworld temperature'][x,y],
-	)
-	dy2: Image[float] = Image(
-		GRID_SIZE,
-		lambda x,y : TERRAIN['overworld temperature'][x,y] - TERRAIN['overworld temperature'][x,(y - 1) % GRID_SIZE],
-	)
-	TERRAIN['overworld temperature differential y']: Image[float] = (dy1 + dy2)/2
-	cleanMapping('overworld temperature differential y',TERRAIN)
-RANGE['overworld temperature differential y'] = (
-	(
-		RANGE['overworld temperature'] - RANGE['overworld temperature']
-	) + (
-		RANGE['overworld temperature'] - RANGE['overworld temperature']
-	)
-) / 2
 if 'overworld-midworld connection edges' not in TERRAIN:
 	print('generating overworld-midworld connection edges...')
 	offsets = {
