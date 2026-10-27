@@ -1,0 +1,13 @@
+goal: {
+	hunger = 0,
+	thirst = 0,
+	pain = 0,
+	lust = 0,
+}
+
+if any(amounts[need] < threshold[need] for need in needs):
+	for need in needs:
+		if amounts[need] < threshold[need]:
+			improve need
+else:
+	need = argmin()
